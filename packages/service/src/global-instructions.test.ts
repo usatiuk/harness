@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAgentsPlugin } from "@harness/agents";
 import { approvalPlugin } from "@harness/approval";
-import { DEFAULT_AGENTS, spawnSubagent } from "@harness/subagents";
+import { DEFAULT_AGENTS, SubagentsDefinition } from "@harness/subagents";
+import { activitiesPlugin } from "@harness/activities";
 import { InMemoryStore } from "@harness/store";
 import { FakeProvider, textStep, unusedCodeEvaluator } from "@harness/testkit";
 import {
@@ -35,23 +36,28 @@ async function fixture() {
 
 function runtime(home: string) {
   const requests: ModelRequest[] = [];
+  const byConversation = new Map<ConversationId, ModelRequest>();
   const fake = new FakeProvider([]);
   const provider: ModelProvider = {
     provider: "fake",
     capabilities: () => fake.capabilities(),
     validateConfig: () => {},
     listModels: () => [],
-    async *stream(request) {
+    async *stream(request, _signal, context) {
+      byConversation.set(context.conversationId, request);
       requests.push(request);
       yield* textStep("Finished");
     },
   };
+  const subagents = new SubagentsDefinition((): HarnessService => service);
   const service = new HarnessService({
     home,
     store: new InMemoryStore(),
     codeEvaluator: unusedCodeEvaluator,
     plugins: [
       { id: "fake", providers: () => [provider] },
+      activitiesPlugin,
+      subagents,
       approvalPlugin,
       createAgentsPlugin(home),
     ],
@@ -64,6 +70,8 @@ function runtime(home: string) {
   return {
     service,
     requests,
+    byConversation,
+    subagents,
     createRoot: async (options: Parameters<HarnessService["createConversation"]>[0] = {}) => {
       const conversation = await service.createConversation(options);
       roots.push(conversation.id);
@@ -76,31 +84,35 @@ it.each([true, false])(
   "adds global guidance to root and actual child role requests (workspace: %s)",
   async (workspace) => {
     const { home, project } = await fixture();
-    const { service, requests, createRoot } = runtime(home);
+    const { service, requests, byConversation, subagents, createRoot } = runtime(home);
+    const roles = [
+      ...DEFAULT_AGENTS,
+      { name: "custom", description: "Custom", systemPrompt: "CUSTOM ROLE" },
+    ];
     const root = await createRoot({
       ...(workspace ? { cwd: project } : {}),
-      overrides: { instructions: "ROOT ROLE" },
+      overrides: { instructions: "ROOT ROLE", plugins: { subagents: { agents: roles } } },
     });
     await service.send(root.id, "root task");
     await service.whenIdle(root.id);
     expect(textOf(requestGuidance(requests[0]))).toContain("ROOT ROLE");
-    for (const role of [...DEFAULT_AGENTS, { name: "custom", systemPrompt: "CUSTOM ROLE" }]) {
-      const activity = await spawnSubagent({
-        runner: service,
+    for (const role of roles) {
+      const activity = await subagents.spawn({
         parent: root.id,
-        callId: `spawn-${role.name}`,
-        agentName: role.name,
+        agent: role.name,
         name: `Inspect ${role.name}`,
         slug: `inspect-${role.name}`,
         task: "Inspect without modifying anything.",
-        overrides: { instructions: role.systemPrompt },
-        ...(workspace ? { cwd: project } : {}),
       });
       await service.whenIdle(activity.childId);
-      expect(textOf(requestGuidance(requests.at(-1)))).toContain(role.systemPrompt);
-      expect(textOf(requestGuidance(requests.at(-1)))).not.toContain("ROOT ROLE");
+      expect(textOf(requestGuidance(byConversation.get(activity.childId)))).toContain(
+        role.systemPrompt,
+      );
+      expect(textOf(requestGuidance(byConversation.get(activity.childId)))).not.toContain(
+        "ROOT ROLE",
+      );
     }
-    expect(requests).toHaveLength(4);
+    await service.whenIdle(root.id);
     for (const request of requests) {
       const instructions = textOf(requestGuidance(request));
       expect(instructions.match(/PERSONAL GLOBAL RULES/gu)).toHaveLength(1);

@@ -20,6 +20,7 @@ import {
   type ModelRequest,
   type PluginDefinition,
   type RequestMiddleware,
+  type TurnId,
 } from "@harness/protocol";
 import { reviewerWindow } from "./reviewer-window.ts";
 
@@ -69,18 +70,19 @@ const boundToolResult = (text: string): string => {
 
 const asMessage = (
   source: Item,
-  role: "user" | "assistant",
   content: string,
+  assistantTurn?: TurnId,
 ): ModelRequest["items"][number] => ({
   item: {
     id: source.id,
     conversationId: source.conversationId,
-    turnId: source.turnId,
     seq: source.seq,
     parent: source.parent,
     createdAt: source.createdAt,
     type: "message",
-    role,
+    ...(assistantTurn === undefined
+      ? { role: "user", turnId: source.turnId }
+      : { role: "assistant", turnId: assistantTurn }),
     content: [{ type: "text", text: content }],
   },
 });
@@ -118,14 +120,14 @@ export const defaultReviewContext: ReviewContextBuilder = ({
         else selected.push({ item });
         break;
       case "compaction":
-        selected.push(asMessage(item, "user", `[conversation summary]\n${textOf(item.content)}`));
+        selected.push(asMessage(item, `[conversation summary]\n${textOf(item.content)}`));
         break;
       case "tool_call":
         selected.push(
           asMessage(
             item,
-            "assistant",
             `[${item.parentCallId ? `nested tool call; parent: ${item.parentCallId}` : "assistant tool call"}]\ncall id: ${item.callId}\nname: ${item.name}\narguments:\n${boundToolResult(safeJson(item.args))}`,
+            item.turnId,
           ),
         );
         break;
@@ -136,7 +138,6 @@ export const defaultReviewContext: ReviewContextBuilder = ({
             selected.push(
               asMessage(
                 item,
-                "user",
                 [
                   "[prior approval denial; tool was not executed]",
                   `call id: ${item.callId}`,
@@ -155,18 +156,13 @@ export const defaultReviewContext: ReviewContextBuilder = ({
         selected.push(
           asMessage(
             item,
-            "user",
             `[tool result: ${item.status}; call id: ${item.callId}${item.parentCallId ? `; parent: ${item.parentCallId}` : ""}]\n${boundToolResult(textOf(item.content))}${item.structured === undefined ? "" : `\nstructured result: ${boundToolResult(safeJson(item.structured))}`}${item.structuredRef ? `\nstructured JSON preview: ${structuredPreviews?.get(item.id) ?? "[not loaded]"}\nstructured output reference: ${safeJson(item.structuredRef)}` : ""}`,
           ),
         );
         break;
       case "context":
         selected.push(
-          asMessage(
-            item,
-            "user",
-            `[untrusted project context: ${item.key}]\n${textOf(item.content)}`,
-          ),
+          asMessage(item, `[untrusted project context: ${item.key}]\n${textOf(item.content)}`),
         );
         break;
       case "reasoning":
@@ -180,7 +176,6 @@ export const defaultReviewContext: ReviewContextBuilder = ({
   selected.push(
     asMessage(
       source,
-      "user",
       [
         "[proposed tool call to review]",
         `name: ${request.call.name}`,

@@ -1,46 +1,7 @@
-import { z } from "zod";
-import {
-  errorResult,
-  okResult,
-  type ConfigReader,
-  type ConversationOverrides,
-  type ConversationRunner,
-  type Tool,
-  type ToolContext,
-  type ToolInput,
-  type ToolResult,
-} from "@harness/protocol";
-import { DEFAULT_MAX_DEPTH, type SubagentsConfig } from "./config.ts";
-import { depthOf, type SubagentRegistry } from "./registry.ts";
-import { isDismissed, rosterPage } from "./family.ts";
-import { spawnSubagent } from "./spawn.ts";
-
-const subagentArgs = z.strictObject({
-  agent: z.string().describe("The agent to delegate to (one of the catalog names)."),
-  name: z
-    .string()
-    .trim()
-    .min(1)
-    .max(100)
-    .describe("A short readable name for this task, e.g. Review authentication."),
-  slug: z
-    .string()
-    .max(64)
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-    .describe(
-      "A stable kebab-case task identifier, unique within this parent conversation, e.g. auth-review.",
-    ),
-  task: z.string().describe("The task for the subagent — its full prompt for this delegation."),
-});
-
-export interface SubagentToolDeps {
-  /** Reads the resolved `plugins.subagents` catalog for the dispatching conversation. */
-  reader: ConfigReader;
-  /** Lazy: the runner is bound after the service is constructed, but before any tool runs. */
-  runner: () => ConversationRunner;
-  /** Serializes admission per parent. */
-  registry: SubagentRegistry;
-}
+import { errorResult, okResult, type Tool, type ToolContext } from "@harness/protocol";
+import type { z } from "zod";
+import type { SubagentsDefinition } from "./plugin.ts";
+import { subagentArgs, SpawnRejected } from "./spawn.ts";
 
 /**
  * Launch a child conversation and return its identity, not its eventual result.
@@ -53,72 +14,21 @@ export class SubagentTool implements Tool<z.infer<typeof subagentArgs>> {
     "own system prompt and tool scope. Returns the child's identity after launch; its turn result arrives separately. Do small, quick work directly. " +
     "Delegate substantive independent work when isolation or useful parallelism helps. " +
     "Do not relay your unchanged assigned task to another agent.";
-  readonly input: ToolInput<z.infer<typeof subagentArgs>> = {
-    kind: "function",
-    schema: subagentArgs,
-  };
-  readonly #deps: SubagentToolDeps;
+  readonly input = { kind: "function" as const, schema: subagentArgs };
+  constructor(private readonly definition: SubagentsDefinition) {}
 
-  constructor(deps: SubagentToolDeps) {
-    this.#deps = deps;
-  }
-
-  async execute(
-    { agent: agentName, name, slug, task }: z.infer<typeof subagentArgs>,
-    ctx: ToolContext,
-  ): Promise<ToolResult> {
-    const runner = this.#deps.runner();
-    const cfg = await this.#deps.reader.get<SubagentsConfig>("subagents", ctx.conversationId);
-    const maxDepth = cfg.maxDepth ?? DEFAULT_MAX_DEPTH;
-    const agents = cfg.agents ?? [];
-    const agent = agents.find((a) => a.name === agentName);
-    if (!agent) {
-      const known = agents.map((a) => a.name).join(", ") || "(none configured)";
-      return errorResult(`unknown agent: ${agentName}. Available: ${known}`);
-    }
-
-    // Single spawn-time check: withholding `subagent` from an unrestricted child can't be
-    // expressed ("all tools minus one" needs the global surface the tool can't see), so refuse here.
-    const parentDepth = await depthOf(runner, ctx.conversationId, maxDepth);
-    if (parentDepth >= maxDepth) {
-      return errorResult(`subagent depth limit reached (max ${maxDepth})`);
-    }
-    const childAllow = agent.tools?.allow;
-
-    const overrides: ConversationOverrides = { instructions: agent.systemPrompt };
-    if (agent.model) overrides.model = agent.model;
-    if (childAllow) overrides.tools = { allow: childAllow };
-
-    // Spawn the child in the parent's project (shared cwd ⇒ same settings cascade + catalog).
-    const parent = await runner.getConversation(ctx.conversationId);
-    const cwd = parent?.workspaceRoot ?? undefined;
-    return this.#deps.registry.withSpawn(ctx.conversationId, async () => {
-      ctx.signal.throwIfAborted();
-      if (await isDismissed(runner, ctx.conversationId))
-        return errorResult("Dismissed subagents cannot spawn children.");
-      const maxChildren = cfg.maxChildren ?? 3;
-      if ((await rosterPage(runner, ctx.conversationId, maxChildren)).length >= maxChildren)
-        return errorResult(
-          `Subagent limit reached (${maxChildren} active children). Dismiss a child before spawning another.`,
-        );
-      if (
-        (await runner.getPluginState("subagents", ctx.conversationId, `slug:${slug}`)) !== undefined
-      )
-        return errorResult(`subagent slug already exists: ${slug}`);
-      const { childId } = await spawnSubagent({
-        runner,
-        signal: ctx.signal,
+  async execute(args: z.infer<typeof subagentArgs>, ctx: ToolContext) {
+    try {
+      const child = await this.definition.spawn({
+        ...args,
         parent: ctx.conversationId,
         callId: ctx.callId,
-        agentName: agent.name,
-        name,
-        slug,
-        task,
-        overrides,
-        ...(cwd !== undefined ? { cwd } : {}),
+        signal: ctx.signal,
       });
-
-      return { ...okResult(`Started ${name} [${slug}].`), structured: { childId, name, slug } };
-    });
+      return { ...okResult(`Started ${child.name} [${child.slug}].`), structured: child };
+    } catch (cause) {
+      if (cause instanceof SpawnRejected) return errorResult(cause.message);
+      throw cause;
+    }
   }
 }

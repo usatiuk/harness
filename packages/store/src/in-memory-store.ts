@@ -19,6 +19,7 @@ import type {
   ConversationOverrides,
   ConversationRecord,
   IdGenerator,
+  ChildOwnership,
   Item,
   ItemId,
   ModelUsage,
@@ -157,6 +158,16 @@ export class InMemoryStore implements Store {
       const parent = this.#conversations.get(input.parentId);
       if (!parent || parent.closed)
         throw new Error("Cannot create a child of an absent or closed thread");
+      if (input.childState) {
+        const { plugin, key, value, parentIndexKey } = input.childState;
+        const index = pluginStateKey(plugin, parent.id, parentIndexKey);
+        if (this.#pluginState.has(index)) throw new Error("Parent plugin index already exists");
+        const mark = pluginStateKey(plugin, record.id, key);
+        const stored: unknown = JSON.parse(JSON.stringify(value));
+        this.#pluginState.set(mark, stored);
+        this.#pluginScopes.set(mark, parent.id);
+        this.#pluginState.set(index, record.id);
+      }
       const children = this.#children.get(parent.id) ?? new Set<ConversationId>();
       children.add(record.id);
       this.#children.set(parent.id, children);
@@ -227,10 +238,11 @@ export class InMemoryStore implements Store {
     return this.#conversations.get(id);
   }
 
-  async deleteConversationIfEmpty(id: ConversationId): Promise<void> {
+  async deleteConversationIfEmpty(id: ConversationId, owner?: ChildOwnership): Promise<void> {
     const conversation = this.#conversations.get(id);
     if (
       !conversation ||
+      conversation.parentId !== owner?.parentId ||
       conversation.closed ||
       this.#children.get(id)?.size ||
       conversation.head !== null
@@ -239,7 +251,17 @@ export class InMemoryStore implements Store {
     for (const turn of this.#turns.values()) {
       if (turn.conversationId === id) return;
     }
-    if (conversation.parentId) this.#children.get(conversation.parentId)?.delete(id);
+    if (conversation.parentId) {
+      this.#children.get(conversation.parentId)?.delete(id);
+      if (owner?.childState) {
+        const { plugin, key, parentIndexKey } = owner.childState;
+        const mark = pluginStateKey(plugin, id, key);
+        this.#pluginState.delete(mark);
+        this.#pluginScopes.delete(mark);
+        const index = pluginStateKey(plugin, conversation.parentId, parentIndexKey);
+        if (this.#pluginState.get(index) === id) this.#pluginState.delete(index);
+      }
+    }
     this.#children.delete(id);
     this.#conversations.delete(id);
     this.#items.delete(id);

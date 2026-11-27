@@ -63,25 +63,6 @@ const explorationAction = (
   }
 };
 
-const turnIdOf = (cell: Cell): string | undefined => {
-  switch (cell.kind) {
-    case "user":
-    case "assistant":
-    case "reasoning":
-    case "provider_output":
-    case "plugin_message":
-    case "tool":
-      return cell.turnId;
-    case "compaction":
-    case "context":
-    case "error":
-    case "worked":
-    case "note":
-    case "shell":
-      return undefined;
-  }
-};
-
 const isMutableCell = (cell: Cell): boolean => {
   if (cell.kind === "assistant" || cell.kind === "reasoning" || cell.kind === "shell") {
     return cell.streaming;
@@ -145,7 +126,7 @@ export function layoutTranscript(cells: Cell[], verbose: boolean): TranscriptEnt
   for (const cell of cells) {
     const action = cell.kind === "tool" ? explorationAction(cell) : undefined;
     const mutableAction = cell.kind === "tool" && cell.status === undefined;
-    const turnId = turnIdOf(cell);
+    const turnId = cell.kind === "tool" ? cell.turnId : undefined;
     if (action && turnId) {
       if (exploration && exploration.turnId !== turnId) flushExploration();
       exploration ??= {

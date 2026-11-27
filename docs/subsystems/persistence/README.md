@@ -18,6 +18,12 @@ A conversation record stores:
 - A durable settings-override object.
 - `head`, the current leaf item or `null` before the first append.
 
+A plugin can publish an indexed child in one store operation: the conversation,
+its scoped plugin state, and the parent’s index entry are written together or
+not at all. Subagents use this for the spawn mark and permanent parent-local slug.
+Ordinary empty-draft cleanup only deletes roots. If registration fails, the
+creator can roll back its still-empty child and matching index together.
+
 Appending an item assigns a monotonic conversation sequence, links `parent` to
 the current head, and advances head atomically. Rewind moves head to an earlier
 item. Continuing afterward appends another child while the abandoned tail remains
@@ -30,6 +36,12 @@ plugin-injected context. Assistant messages retain optional phase strings/null.
 Items are immutable after append. Streaming deltas stay in memory; finalization
 appends once. Graceful interruption preserves partial readable content, while a
 hard crash may lose an unfinalized preview.
+
+Schema 18 allows an input saved between turns to have a null `turnId`. If that
+input opens an empty conversation, its opening system instructions also have
+no turn. Generated output, tool calls and results still belong to real turns.
+These messages use the same item IDs, ancestry, and history reads as other
+messages; there is no second inbox to replay on reopen.
 
 Forks share immutable ancestry: `forkConversation` creates one independent record
 whose head is the selected user message's parent, including null for a first
@@ -58,8 +70,9 @@ errors retaining their invocation association; no computation resumes.
   accepted, undelivered responses. Appending the answer as a user message and
   marking it consumed share one transaction; retries cannot duplicate canonical
   input. Accepted responses update conversation recency once. Unanswered requests
-  survive turn cancellation, while forced runtime teardown leaves accepted input
-  available for the next activation.
+  survive turn cancellation. Orderly shutdown saves accepted answers as ordinary
+  history without scheduling a reply; crash recovery still restores unresolved
+  deliveries.
 - **Turns** record running/completed/failed/aborted status. Runtime liveness stays
   in memory; persisted `running` exists for crash reconciliation only.
 - **Provider payloads** preserve provider/model/type/version-bound opaque data

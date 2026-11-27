@@ -4,8 +4,8 @@ import type { HarnessService } from "./service.ts";
 /** Shared lifetime authority for RPC work; a client session owns only observation. */
 export class HarnessRpcHost {
   readonly service: HarnessService;
-  readonly #roots = new Set<ConversationId>();
-  readonly #closing = new Set<ConversationId>();
+  // Null while a graceful close waits for callers; once committed, shutdown joins its retirement.
+  readonly #closing = new Map<ConversationId, Promise<void> | null>();
   readonly #active = new Map<ConversationId, Set<AbortController>>();
   readonly #idleWaiters = new Map<ConversationId, Set<() => void>>();
   readonly #detached = new Set<(root: ConversationId) => void>();
@@ -62,7 +62,6 @@ export class HarnessRpcHost {
     requestSignal?: AbortSignal,
   ): Promise<T> {
     if (this.isClosing(root)) throw new Error("conversation is closing");
-    this.#roots.add(root);
     const controller = new AbortController();
     const cancel = () => controller.abort();
     if (requestSignal?.aborted) controller.abort();
@@ -75,15 +74,13 @@ export class HarnessRpcHost {
     active.add(controller);
     try {
       if (controller.signal.aborted) throw new Error("operation cancelled");
-      const result = await operation(controller.signal);
-      if (controller.signal.aborted) throw new Error("operation cancelled");
-      return result;
+      // Only the operation knows whether cancellation beat its commit.
+      return await operation(controller.signal);
     } finally {
       requestSignal?.removeEventListener("abort", cancel);
       active.delete(controller);
       if (active.size === 0) {
         this.#active.delete(root);
-        if (this.service.conversationTreeState(root).length === 0) this.#roots.delete(root);
         for (const resolve of this.#idleWaiters.get(root) ?? []) resolve();
         this.#idleWaiters.delete(root);
       }
@@ -92,14 +89,24 @@ export class HarnessRpcHost {
 
   async deactivate(root: ConversationId, force: boolean) {
     if (this.isClosing(root)) throw new Error("conversation is closing");
-    this.#closing.add(root);
+    this.#closing.set(root, null);
     try {
-      if (force) this.#cancel(root);
-      await this.#whenIdle(root);
-      return await this.service.deactivateSession(root, { force });
+      if (!force) {
+        await this.#whenIdle(root);
+        if (this.#stopping) throw new Error("server is stopping");
+        if (this.service.isSessionBusy(root)) return { status: "busy" } as const;
+      }
+      const stopped = this.service.stopSessions([root], async () => {
+        if (force) {
+          this.#cancelOperations(root);
+          await this.#whenIdle(root);
+        }
+      });
+      this.#closing.set(root, stopped);
+      await stopped;
+      return { status: "deactivated" } as const;
     } finally {
       if (this.service.conversationTreeState(root).length === 0) {
-        this.#roots.delete(root);
         for (const listener of this.#detached) listener(root);
       }
       this.#closing.delete(root);
@@ -113,8 +120,9 @@ export class HarnessRpcHost {
 
   /** Claim idle shutdown synchronously, closing admission before the stop response. */
   beginShutdownIfIdle(): boolean {
-    if (this.#requests.size !== 0 || this.#active.size !== 0) return false;
-    for (const root of this.#roots) {
+    if (this.#requests.size !== 0 || this.#active.size !== 0 || this.#closing.size !== 0)
+      return false;
+    for (const root of this.service.activeRoots()) {
       if (this.service.isSessionBusy(root)) return false;
     }
     this.#stopping = true;
@@ -123,22 +131,26 @@ export class HarnessRpcHost {
 
   async #doShutdown(): Promise<void> {
     this.#stopping = true;
-    const roots = [...this.#roots];
-    for (const root of roots) this.#cancel(root);
-    await Promise.allSettled([...this.#requests]);
-    await Promise.all(roots.map((root) => this.#whenIdle(root)));
-    const results = await Promise.allSettled(
-      roots.map((root) => this.service.deactivateSession(root, { force: true })),
+    // RPC work can precede its first load, and an already loaded session need not have an RPC peer.
+    const roots = [...new Set([...this.service.activeRoots(), ...this.#active.keys()])].filter(
+      (root) => !this.#closing.get(root),
     );
-    this.#roots.clear();
+    const closing = [...this.#closing.values()].filter((promise) => promise !== null);
+    const results = await Promise.allSettled([
+      ...closing,
+      this.service.stopSessions(roots, async () => {
+        for (const root of roots) this.#cancelOperations(root);
+        await Promise.allSettled([...this.#requests]);
+        await Promise.all(roots.map((root) => this.#whenIdle(root)));
+      }),
+    ]);
     const errors = results.flatMap((result) =>
       result.status === "rejected" ? [result.reason as unknown] : [],
     );
     if (errors.length > 0) throw new AggregateError(errors, "Conversation shutdown failed");
   }
 
-  #cancel(root: ConversationId): void {
-    this.service.cancelSession(root);
+  #cancelOperations(root: ConversationId): void {
     for (const controller of this.#active.get(root) ?? []) controller.abort();
   }
 

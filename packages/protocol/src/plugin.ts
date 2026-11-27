@@ -7,7 +7,7 @@ import type { Conversation } from "./conversation.ts";
 import type { ConversationId, TurnId } from "./ids.ts";
 import type { DeliveryInput } from "./delivery.ts";
 import type { Item } from "./items.ts";
-import type { HarnessEvent, PluginEvent } from "./events.ts";
+import type { HarnessEvent } from "./events.ts";
 import type { CompactionStrategy } from "./policies.ts";
 import type { RequestMiddleware } from "./requests.ts";
 import type { ProviderTypeContributions } from "./provider-instance.ts";
@@ -82,16 +82,10 @@ export interface ConversationContext {
   active(): Promise<readonly Item[]>;
 }
 
-/** One acquired turn. Scoped services and callbacks belong to an activation in the same conversation tree. */
+/** One acquired turn. */
 export interface TurnStartContext {
   conversation: Conversation;
   turnId: TurnId;
-  scope: (id: ConversationId) => Promise<{
-    service(key: string): unknown;
-    emit: (event: PluginEvent) => void;
-    /** Post a completion notice to this activation; stale notices are discarded. */
-    deliver: (content: ContentBlock[]) => void;
-  }>;
 }
 
 export type ContextBoundary =

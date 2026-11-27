@@ -12,12 +12,17 @@ import { SqliteStore } from "./sqlite-store.ts";
 // The shared contract suite — same one that proves InMemoryStore (in-memory ≡ sqlite).
 storeContract("SqliteStore", () => new SqliteStore(":memory:", counterIdGenerator(), fixedClock()));
 
-// Drops everything the v12–v15 migrations add on top of schema 11 (scoped plugin
-// state, question inbox, retry accounting); callers drop older additions themselves.
-const downgradeToSchema16 = (db: BetterSqlite3.Database) =>
+// Reconstruct prior formats so the production migrations run against their real constraints.
+const downgradeToSchema17 = (db: BetterSqlite3.Database) =>
+  db.exec(
+    "ALTER TABLE items DROP CONSTRAINT items_turn_owner; ALTER TABLE items ALTER COLUMN turn_id SET NOT NULL;",
+  );
+const downgradeToSchema16 = (db: BetterSqlite3.Database) => {
+  downgradeToSchema17(db);
   db.exec(
     "DROP TRIGGER thread_admission; DROP INDEX conversations_thread_parent; ALTER TABLE conversations DROP COLUMN thread_parent; ALTER TABLE conversations DROP COLUMN closed;",
   );
+};
 const downgradeToSchema11 = (db: BetterSqlite3.Database) => {
   downgradeToSchema16(db);
   db.exec(
@@ -50,6 +55,68 @@ describe("SqliteStore (durable-only)", () => {
   };
   afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("preserves turn ownership and item ancestry across the v17 between-turn message upgrade", async () => {
+    const path = tempDb();
+    const original = new SqliteStore(path);
+    const conversation = await original.createConversation(record());
+    const turn = await original.createTurn(conversation.id);
+    const answer = await original.appendItem({
+      conversationId: conversation.id,
+      turnId: turn.id,
+      type: "message",
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+    });
+    await original.updateTurn(turn.id, "completed");
+    original.close();
+    const previous = new BetterSqlite3(path);
+    downgradeToSchema17(previous);
+    previous.pragma("user_version = 17");
+    previous.close();
+
+    const upgraded = new SqliteStore(path);
+    const empty = await upgraded.createConversation(record());
+    const base = await upgraded.appendItem({
+      conversationId: empty.id,
+      turnId: null,
+      type: "message",
+      role: "system",
+      content: [{ type: "text", text: "base" }],
+    });
+    const message = await upgraded.appendItem({
+      conversationId: conversation.id,
+      turnId: null,
+      type: "message",
+      role: "user",
+      source: { kind: "plugin", pluginId: "subagents" },
+      content: [{ type: "text", text: "reply" }],
+    });
+    upgraded.close();
+    const raw = new BetterSqlite3(path);
+    try {
+      expect(() =>
+        raw.prepare("UPDATE items SET turn_id = NULL WHERE id = ?").run(answer.id),
+      ).toThrow(/CHECK constraint failed/);
+    } finally {
+      raw.close();
+    }
+    const reopened = new SqliteStore(path);
+    try {
+      expect(await reopened.listActiveItems(conversation.id)).toEqual([answer, message]);
+      expect(message).toMatchObject({ parent: answer.id, turnId: null });
+      expect(await reopened.listActiveItems(empty.id)).toEqual([base]);
+      expect(await reopened.getLatestTurn(empty.id)).toBeUndefined();
+      const fork = await reopened.forkConversation(conversation.id, message.id, {});
+      expect(await reopened.listActiveItems(fork.id)).toEqual([answer]);
+      expect(await reopened.getLatestTurn(conversation.id)).toMatchObject({
+        id: turn.id,
+        status: "completed",
+      });
+    } finally {
+      reopened.close();
+    }
   });
 
   it("upgrades a populated v15 window and its auxiliary prompt in place", async () => {

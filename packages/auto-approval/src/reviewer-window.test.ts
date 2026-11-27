@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationId, Item, ItemId } from "@harness/protocol";
+import type { ConversationId, Item, ItemId, TurnId } from "@harness/protocol";
 import { reviewerWindow } from "./reviewer-window.ts";
 
-const item = (id: string, seq: number): Item => ({
+const item = (id: string, seq: number): Extract<Item, { role: "assistant" }> => ({
   id: id as ItemId,
   conversationId: "c1" as ConversationId,
-  turnId: "t1" as never,
+  turnId: "t1" as TurnId,
   seq,
   parent: null,
   createdAt: 0,

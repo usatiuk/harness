@@ -7,6 +7,7 @@ import {
   unusedCodeEvaluator,
   FakeProvider,
   GateProvider,
+  GateTool,
   EchoTool,
   counterIdGenerator,
   fixedClock,
@@ -23,12 +24,12 @@ import {
   SubagentsDefinition,
   isDismissed,
   rosterPage,
-  spawnSubagent,
   subagentsListRequest,
   subagentsEventNotification,
   type SubagentPage,
 } from "@harness/subagents";
 import {
+  isKernelEvent,
   textOf,
   type ConversationId,
   type PluginEntry,
@@ -366,6 +367,64 @@ it("expires one shared human-only approval with no clients, persists denial and 
   }
 });
 
+it("saves an interrupted restored grandchild's activity result to its cold direct parent", async () => {
+  const store = new InMemoryStore();
+  const subagents = new SubagentsDefinition((): HarnessService => harness.service);
+  const provider = new FakeProvider([]);
+  provider.stream = () => new FakeProvider([textStep("Done")]).stream();
+  const harness = sharedHarness(provider, [activitiesPlugin, subagents], store);
+  try {
+    const { client } = await harness.connect();
+    const root = (await client.create({})).id as ConversationId;
+    await client.attach(root);
+    const historicalChild = async (parent: ConversationId, slug: string) => {
+      const { childId } = await subagents.spawn({
+        parent,
+        callId: slug,
+        agent: "general",
+        name: slug,
+        slug,
+        task: slug,
+      });
+      await harness.service.whenIdle(childId);
+      await harness.service.whenIdle(parent);
+      return childId;
+    };
+    const mid = await historicalChild(root, "parent");
+    const leaf = await historicalChild(mid, "leaf");
+    await harness.service.whenIdle(root);
+    await harness.host.deactivate(root, true);
+    const initialLeaf = await store.getLatestTurn(leaf);
+    const initialParent = await store.getLatestTurn(mid);
+    const before = new Set((await store.listActiveItems(mid)).map((item) => item.id));
+
+    await client.attach(leaf);
+    let stopping: ReturnType<HarnessRpcHost["deactivate"]> | undefined;
+    const off = harness.service.subscribe(leaf, (event) => {
+      if (isKernelEvent(event) && event.type === "turn.status" && event.status === "running")
+        stopping = harness.host.deactivate(root, true);
+    });
+    await harness.service.deliver(leaf, "Resume", "send");
+    await harness.service.whenIdle(leaf);
+    await expect(stopping).resolves.toMatchObject({ status: "deactivated" });
+    off();
+    const resumed = await store.getLatestTurn(leaf);
+    expect(initialLeaf?.status).toBe("completed");
+    expect(resumed?.id).not.toBe(initialLeaf!.id);
+    expect(resumed?.status).toBe("aborted");
+    const notices = (await store.listActiveItems(mid))
+      .filter((item) => !before.has(item.id))
+      .filter((item) => item.type === "message" && item.role === "user");
+    expect(notices).toMatchObject([
+      { role: "user", source: { kind: "plugin", pluginId: "subagents" }, turnId: null },
+    ]);
+    expect(textOf(notices[0]!.content)).toMatch(/aborted/);
+    expect((await store.getLatestTurn(mid))?.id).toBe(initialParent!.id);
+  } finally {
+    await harness.close();
+  }
+});
+
 it("inspects durable subagent trees over RPC and rejects client mutations without disrupting parent ownership", async () => {
   const gate = new GateProvider("Live child output");
   const provider: ModelProvider = new FakeProvider([]);
@@ -376,55 +435,42 @@ it("inspects durable subagent trees over RPC and rejects client mutations withou
       throw new Error("Review failed");
     else yield* textStep("Complete");
   };
-  const subagents = new SubagentsDefinition();
+  const subagents = new SubagentsDefinition((): HarnessService => harness.service);
   const harness = sharedHarness(provider, [activitiesPlugin, subagents]);
-  subagents.bindRunner(harness.service);
   try {
     const first = await harness.connect();
     const root = await first.client.create({});
     await first.client.attach(root.id);
-    const child = await spawnSubagent({
-      runner: harness.service,
+    const child = await subagents.spawn({
       parent: root.id as ConversationId,
-      callId: "child",
-      agentName: "explore",
+      agent: "explore",
       name: "Review authentication",
       slug: "auth-review",
       task: "review",
-      overrides: {},
     });
     await harness.service.whenIdle(child.childId);
-    const nested = await spawnSubagent({
-      runner: harness.service,
+    const nested = await subagents.spawn({
       parent: child.childId,
-      callId: "nested",
-      agentName: "general",
+      agent: "general",
       name: "Check tests",
       slug: "tests",
       task: "check",
-      overrides: {},
     });
     await harness.service.whenIdle(nested.childId);
-    const failed = await spawnSubagent({
-      runner: harness.service,
+    const failed = await subagents.spawn({
       parent: root.id as ConversationId,
-      callId: "failed",
-      agentName: "explore",
+      agent: "explore",
       name: "Failed review",
       slug: "failed",
       task: "fail",
-      overrides: {},
     });
     await harness.service.whenIdle(failed.childId);
-    const active = await spawnSubagent({
-      runner: harness.service,
+    const active = await subagents.spawn({
       parent: child.childId,
-      callId: "active",
-      agentName: "explore",
+      agent: "explore",
       name: "Live review",
       slug: "live",
       task: "live",
-      overrides: {},
     });
     await gate.started;
     const page = await first.plugins.listSubagents(root.id as ConversationId);
@@ -517,9 +563,8 @@ it("exposes distinct activity IDs for resumed turns and stops only the live owne
   const report = "Evidence from the child. ".repeat(80) + "End of full report.";
   const firstRun = new GateProvider(report);
   const provider: ModelProvider = new FakeProvider([]);
-  const subagents = new SubagentsDefinition();
+  const subagents = new SubagentsDefinition((): HarnessService => harness.service);
   const harness = sharedHarness(provider, [activitiesPlugin, subagents]);
-  subagents.bindRunner(harness.service);
   const gate = new GateProvider("Resumed work");
   try {
     const { client, plugins } = await harness.connect();
@@ -612,6 +657,142 @@ it("exposes distinct activity IDs for resumed turns and stops only the live owne
     firstRun.release();
     gate.release();
     await harness.close();
+  }
+});
+
+it("preserves sibling input in order through host shutdown and SQLite reopen without calling the model again", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "harness-shutdown-siblings-"));
+  const path = join(dir, "history.db");
+  const heldTool = new GateTool({ honorSignal: true });
+  const senderWorking = new GateProvider("Work in progress");
+  let recipient: ConversationId | undefined;
+  let report!: () => void;
+  const calls: ModelRequest[] = [];
+  const provider: ModelProvider = new FakeProvider([]);
+  provider.stream = async function* (request, signal) {
+    calls.push(request);
+    if (userInputMatches(request, (text) => text === "Use both findings")) {
+      yield* textStep("Reviewed both findings");
+    } else if (userInputMatches(request, (text) => text.endsWith("\nReceive"))) {
+      yield* toolStep("hold-recipient", heldTool.name, {});
+    } else if (userInputMatches(request, (text) => text.endsWith("\nSend"))) {
+      if (!request.items.some(({ item }) => item.type === "tool_result" && item.callId === "send"))
+        yield* toolStep("send", "subagent_send", { to: recipient!, message: "First finding" });
+      else {
+        signal.addEventListener("abort", report, { once: true });
+        try {
+          yield* senderWorking.stream(request, signal);
+        } finally {
+          signal.removeEventListener("abort", report);
+        }
+      }
+    } else yield* textStep("Handled");
+  };
+  const subagents = new SubagentsDefinition((): HarnessService => harness.service);
+  const store = new SqliteStore(path);
+  const harness = sharedHarness(
+    provider,
+    [
+      activitiesPlugin,
+      subagents,
+      {
+        id: "field-notes",
+        tools: () => [heldTool],
+        async onTurnStart({ conversation }) {
+          if (!recipient || conversation.id === recipient || !conversation.parentId) return;
+          const target = await harness.service.scope(recipient, this.id);
+          report = () => target.deliver([{ type: "text", text: "Second finding" }]);
+        },
+      },
+    ],
+    store,
+  );
+  try {
+    try {
+      const { client } = await harness.connect();
+      const parent = (await client.create({})).id as ConversationId;
+      await client.attach(parent);
+      const spawn = (task: string) =>
+        subagents.spawn({
+          parent,
+          agent: "general",
+          name: task,
+          slug: task.toLowerCase(),
+          task,
+        });
+      recipient = (await spawn("Receive")).childId;
+      await heldTool.started;
+      const sender = (await spawn("Send")).childId;
+      await senderWorking.started;
+      expect(await harness.service.getItems(sender)).toContainEqual(
+        expect.objectContaining({ type: "tool_result", callId: "send", status: "ok" }),
+      );
+      const pending = harness.service
+        .conversationTreeState(parent)
+        .find((member) => member.conversation.id === recipient)?.pendingInput;
+      expect(pending).toMatchObject([
+        { intent: "steer", source: { kind: "plugin", pluginId: "subagent_send" } },
+      ]);
+      const before = calls.length;
+      // Stops RPC admission, cancels active family work, then retires the root.
+      await harness.close();
+      expect(calls).toHaveLength(before);
+    } finally {
+      heldTool.release();
+      senderWorking.release();
+      try {
+        await harness.close();
+      } finally {
+        store.close();
+      }
+    }
+    const reopened = new SqliteStore(path);
+    const after = sharedHarness(provider, [], reopened);
+    try {
+      const before = calls.length;
+      const { client } = await after.connect();
+      await client.attach(recipient);
+      await after.service.whenIdle(recipient);
+      const { entries } = await client.history({ conversationId: recipient });
+      // History pages walk from head toward its ancestors.
+      const ordered = entries.toReversed().flatMap((entry) => {
+        if (entry.kind !== "item") return [];
+        const item = entry.item;
+        if (item.type === "tool_result" && item.callId === "hold-recipient")
+          return [`tool:${item.status}`];
+        if (item.type === "message" && item.role === "user" && item.source?.kind === "plugin")
+          return [`${item.source.pluginId}:${textOf(item.content)}`];
+        return [];
+      });
+      expect(ordered).toEqual([
+        "tool:error",
+        expect.stringMatching(/^subagent_send:.*First finding$/s),
+        "field-notes:Second finding",
+      ]);
+      expect(calls).toHaveLength(before);
+      await after.service.deliver(recipient, "Use both findings", "send");
+      await after.service.whenIdle(recipient);
+      expect(calls).toHaveLength(before + 1);
+      const inputs = calls
+        .at(-1)!
+        .items.flatMap(({ item }) =>
+          item.type === "message" && item.role === "user" ? [textOf(item.content)] : [],
+        );
+      expect(inputs).toEqual([
+        expect.stringContaining("Receive"),
+        expect.stringContaining("First finding"),
+        "Second finding",
+        "Use both findings",
+      ]);
+    } finally {
+      try {
+        await after.close();
+      } finally {
+        reopened.close();
+      }
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -746,12 +927,13 @@ it("closes live descendants on dismissal, filters branches before paging and pub
       yield* gate.stream(request, signal);
     else yield* textStep("Finished");
   };
-  const subagents = new SubagentsDefinition();
+  const subagents = new SubagentsDefinition((): HarnessService => harness.service);
   const harness = sharedHarness(provider, [activitiesPlugin, subagents]);
-  subagents.bindRunner(harness.service);
   try {
     const connection = await harness.connect();
-    const root = await connection.client.create({});
+    const root = await connection.client.create({
+      overrides: { plugins: { subagents: { maxChildren: 5 } } },
+    });
     await connection.client.attach(root.id);
     const foreign = await harness.connect();
     const otherRoot = await foreign.client.create({});
@@ -766,15 +948,12 @@ it("closes live descendants on dismissal, filters branches before paging and pub
       unattachedEvents.push(event),
     );
     for (let i = 0; i < 5; i++) {
-      const child = await spawnSubagent({
-        runner: harness.service,
+      const child = await subagents.spawn({
         parent: root.id as ConversationId,
-        callId: `seed-${i}`,
-        agentName: "general",
+        agent: "general",
         name: `Task ${i}`,
         slug: `task-${i}`,
         task: "Work",
-        overrides: {},
       });
       await harness.service.whenIdle(child.childId);
     }
@@ -784,15 +963,12 @@ it("closes live descendants on dismissal, filters branches before paging and pub
     const middleId = initial.children[2]!.id as ConversationId;
     // A retained parent's only dismissed child must not leave a stale expander.
     const retainedId = initial.children[1]!.id as ConversationId;
-    const finished = await spawnSubagent({
-      runner: harness.service,
+    const finished = await subagents.spawn({
       parent: retainedId,
-      callId: "finished",
-      agentName: "general",
+      agent: "general",
       name: "Finished nested",
       slug: "finished",
       task: "Work",
-      overrides: {},
     });
     await harness.service.whenIdle(finished.childId);
     expect(
@@ -801,15 +977,12 @@ it("closes live descendants on dismissal, filters branches before paging and pub
       )?.hasChildren,
     ).toBe(true);
     await harness.service.putPluginState("subagents", finished.childId, "dismissed", true);
-    const active = await spawnSubagent({
-      runner: harness.service,
+    const active = await subagents.spawn({
       parent: middleId,
-      callId: "live",
-      agentName: "general",
+      agent: "general",
       name: "Live work",
       slug: "live",
       task: "Wait",
-      overrides: {},
     });
     await gate.started;
     expect((await connection.plugins.listSubagents(root.id as ConversationId)).running).toBe(1);
@@ -856,7 +1029,17 @@ it("closes live descendants on dismissal, filters branches before paging and pub
     expect(harness.service.isConversationRunning(active.childId)).toBe(false);
     // Closed branches can still be inspected and attached read-only.
     expect((await connection.plugins.inspectSubagent(active.childId))?.name).toBe("Live work");
-    expect((await connection.client.attach(active.childId)).root.id).toBe(root.id);
+    const closedBranch = await connection.client.attach(active.childId);
+    expect(closedBranch.root.id).toBe(root.id);
+    const inspected = closedBranch.members.map((member) => member.conversation.id);
+    expect(inspected).toEqual(expect.arrayContaining([middleId, active.childId]));
+    const live = harness.service.conversationTreeState(root.id as ConversationId);
+    expect(
+      live.some(({ conversation }) => [middleId, active.childId].includes(conversation.id)),
+    ).toBe(false);
+    await expect(connection.client.deliver(active.childId, "Resume", "send")).rejects.toThrow(
+      "read-only",
+    );
     for (const id of listed) await dismiss(id);
     const empty = await connection.client.peer.request(subagentsListRequest, {
       conversationId: root.id,

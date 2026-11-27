@@ -5,6 +5,7 @@ import type {
   QuestionRequest,
   QuestionResponse,
   ConversationConfig,
+  ConversationParent,
   NewConversationRecord,
   CodeEvaluator,
   Conversation,
@@ -65,7 +66,7 @@ export interface HarnessServiceOptions {
   removeWorkspaceEnvironment?: (path: string) => Promise<void>;
 }
 
-export interface CreateConversationOptions {
+export type CreateConversationOptions = ConversationParent & {
   /** Project search root; absent ⇒ projectless (no project settings, no workspace). */
   cwd?: string;
   newWorktree?: boolean;
@@ -75,9 +76,7 @@ export interface CreateConversationOptions {
    * instructions. Re-applied on every resolve, so it survives resume.
    */
   overrides?: Record<string, unknown>;
-  /** Parent for a plugin-spawned child; absent creates a new root conversation. */
-  parentId?: ConversationId;
-}
+};
 
 export type EventListener = (event: HarnessEvent) => void;
 
@@ -201,16 +200,23 @@ export class HarnessService implements ConversationRunner {
     // Insert the complete selection atomically; global model defaults only select new records.
     const record = await this.#store.createConversation({
       ...input,
-      ...(options.parentId !== undefined ? { parentId: options.parentId } : {}),
+      ...(options.parentId !== undefined
+        ? {
+            parentId: options.parentId,
+            ...(options.childState && { childState: options.childState }),
+          }
+        : {}),
       overrides: { ...overrides, model: config.model },
     });
-    try {
-      if (options.parentId !== undefined) this.#engine.registerChild(options.parentId, record.id);
-      return { ...record, config };
-    } catch (error) {
-      await this.#store.deleteConversationIfEmpty(record.id);
-      throw error;
+    if (options.parentId !== undefined) {
+      try {
+        this.#engine.registerChild(options.parentId, record.id);
+      } catch (error) {
+        await this.#store.deleteConversationIfEmpty(record.id, options);
+        throw error;
+      }
     }
+    return { ...record, config };
   }
 
   worktreeRepository(path: string) {
@@ -403,7 +409,15 @@ export class HarnessService implements ConversationRunner {
     return this.#engine.deactivate(rootConversationId, options);
   }
 
-  /** Requests prompt cancellation while leaving disposal to `deactivateSession`. */
+  /** Seal the root group before cancelling callers; dispose only after their operations have joined. */
+  stopSessions(
+    roots: readonly ConversationId[],
+    joinOperations: () => Promise<void>,
+  ): Promise<void> {
+    return this.#engine.stopSessions(roots, joinOperations);
+  }
+
+  /** Interrupt live work and discard ordinary pending input without retiring the session. */
   cancelSession(rootConversationId: ConversationId): void {
     this.#engine.cancel(rootConversationId);
   }
@@ -520,6 +534,10 @@ export class HarnessService implements ConversationRunner {
     return this.#engine.serviceFor(conversationId, key);
   }
 
+  scope(conversationId: ConversationId, pluginId: string) {
+    return this.#engine.scope(conversationId, pluginId);
+  }
+
   /** Read an already-created service without introducing work during an attach snapshot. */
   existingService(conversationId: ConversationId, key: string): unknown {
     return this.#engine.existingServiceFor(conversationId, key);
@@ -616,6 +634,11 @@ export class HarnessService implements ConversationRunner {
 
   isSessionBusy(rootId: ConversationId): boolean {
     return this.#engine.isSessionBusy(rootId);
+  }
+
+  /** Loaded or loading root scopes, regardless of which caller acquired them. */
+  activeRoots(): ConversationId[] {
+    return this.#engine.activeRoots();
   }
 
   pendingRequests(rootId: ConversationId) {

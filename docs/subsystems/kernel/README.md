@@ -28,9 +28,12 @@ activities, agents, or subagents. Those capabilities enter through plugins.
 
 ## Turn and delivery model
 
-`onTurnStart` lets a plugin attach resources to an acquired turn before model
-work begins. It applies to any conversation. Sending, steering, or queuing input
-is not itself a turn start.
+The engine awaits `onTurnStart({ conversation, turnId })` before model work
+begins. Sending, steering, or queuing input is not itself a turn start.
+A plugin can use its injected `ConversationRunner.scope(id, pluginId)` during
+or after the hook. Each lookup resolves the current activation. Its handle can
+look up services, emit events for that conversation, and deliver input attributed
+to that plugin; it never retargets a replacement activation after close and reopen.
 
 `deliver` acknowledges acceptance rather than turn completion. A detached drain
 loop owns the conversation until its inbox is empty. Work already waiting in the
@@ -61,10 +64,23 @@ persisted user-role messages, including steers. Origin is presentation metadata:
 plugin content still reaches the model as ordinary user-role input with unchanged
 delivery semantics. Older items without origin retain their prior appearance.
 
-Explicit delivery rejects if the recipient is closing, regardless of origin.
-A runner caller may cancel before admission; after admission its signal does not
-own the recipient's turn. Only activation-bound completion callbacks silently
-drop notices during teardown.
+New explicit delivery calls reject once the recipient is closing, regardless of origin.
+A caller may cancel before admission. After admission the operation succeeds:
+neither the RPC host nor its peer converts that success into cancellation. The
+caller may abandon its own wait, but that does not retract the input or cancel
+the recipient's turn. An orderly close stops the whole group from starting
+turns before interrupting active work. Its inboxes still receive completions
+from in-flight producers, including siblings. Once turns, host operations, and
+service-owned producers have stopped, each remaining inbox is appended in order
+to its conversation's history. These inputs have no generating turn. Closing
+and reopening do not ask the model to answer them; the next real turn sees them.
+Explicit cancellation and permanent dismissal do not perform this final save.
+An abrupt process exit can still lose input not yet written to history.
+
+A failed final write fails the close. The engine retains the unwritten suffix
+and does not resume that session. While the server is still running, the
+attached client can retry the forced close, or server shutdown can finish it.
+A new client cannot attach to a partially saved session to resume inference.
 
 `whenIdle` waits for conversation quiescence: no active drain and no queued
 inbox work. It is not merely a promise for the turn that happened to be active
@@ -196,7 +212,7 @@ resumption, rollback, or automatic script replay are persisted.
 
 ## State and ownership
 
-Per-conversation `Runtime` state is intentionally process-local and discardable:
+Per-conversation `Runtime` state is process-local:
 inbox entries, turn liveness, abort controller, pending requests, and lazily built
 plugin services. Durable conversation truth belongs to the store. Runtime
 services are reused within their runtime and disposed in reverse provider order
@@ -208,10 +224,10 @@ Model requests use the turn's captured configuration; plugin configuration
 readers may observe the current effective policy. Model selection is pinned in
 durable overrides by HarnessService.
 
-Plugin emission, delivery, requests, and service creation are bound to the Runtime
-that supplied their context. Old callbacks cannot act on a replacement activation
-of the same durable conversation. Cached services remain available during their
-own teardown; constructing new services requires an active runtime.
+Tool and request middleware callbacks cannot act on a replacement activation of
+the same durable conversation. Cached services remain available during their own
+teardown. An acquired turn can still register its resources while stopping;
+once disposal starts, no new services may be constructed.
 
 `HarnessService` owns configuration resolution and presents the client API for
 conversation creation/load, conversation-tree deactivation, delivery, responses, rewind,

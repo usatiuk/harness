@@ -98,12 +98,12 @@ export async function buildServerComposition(
     exclusive: true,
     beforeInitialize: () => assertSelectedServer(home, process.env["HARNESS_SERVER_SELECTION"]),
   });
-  const subagents = new SubagentsDefinition();
   let closeForDockerFailure: (() => Promise<void>) | undefined;
   let startedSandbox: Awaited<ReturnType<typeof createSandboxRuntime>> | undefined;
   let mcp: McpRuntime | undefined;
   let startedHost: HarnessRpcHost | undefined;
   try {
+    const subagents = new SubagentsDefinition((): HarnessService => service);
     const settings = await readGlobalSettings(home);
     const limits = settings.timeouts ?? defaultHostTimeouts;
     if (process.platform !== "win32") options.progress?.("Loading shell environment");
@@ -213,9 +213,6 @@ export async function buildServerComposition(
         },
       },
     });
-    // Late-bind the runner so the subagents tool can spawn/observe/abort children. Mirrors the
-    // engine's late-binding of `configFor`; safe because no tool runs before the service is built.
-    subagents.bindRunner(service);
     worktreesDefinition.bind(service);
     await feedback.start();
     const host = new HarnessRpcHost(service);

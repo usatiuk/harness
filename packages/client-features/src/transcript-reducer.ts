@@ -31,8 +31,8 @@ import type { ModelConfig, ModelFailureReason } from "@harness/protocol";
  * session. Components render cells in Ink or React; this module remains pure.
  */
 export type Cell =
-  | { kind: "plugin_message"; id: string; turnId: string; text: string; pluginId: string; images?: ImageContent[] }
-  | { kind: "user"; id: string; turnId: string; text: string; createdAt: number; images?: ImageContent[] }
+  | { kind: "plugin_message"; id: string; turnId: string | null; text: string; pluginId: string; images?: ImageContent[] }
+  | { kind: "user"; id: string; turnId: string | null; text: string; createdAt: number; images?: ImageContent[] }
   | {
       kind: "assistant";
       turnId: string;
@@ -276,13 +276,9 @@ function imageFields(content: ContentBlock[]): {
 
 function reduceItem(state: State, item: Item, receivedAt?: number): State {
   if (state.itemIds.has(item.id)) {
-    const streamKind =
-      item.type === "message" && item.role === "assistant"
-        ? "assistant"
-        : item.type === "reasoning"
-          ? "reasoning"
-          : undefined;
-    if (streamKind === undefined) return state;
+    if (item.type !== "reasoning" && !(item.type === "message" && item.role === "assistant"))
+      return state;
+    const streamKind = item.type === "reasoning" ? "reasoning" : "assistant";
     const index = openIndex(state.cells, streamKind, item.turnId);
     if (index === -1) return state;
     // History may already contain the durable item while its attach suffix still contains the

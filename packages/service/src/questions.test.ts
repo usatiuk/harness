@@ -163,16 +163,12 @@ describe("async questions", () => {
     await service.deactivateSession(conversation.id);
   });
 
-  it("defers an accepted answer through forced deactivation until the conversation is reopened", async () => {
+  it("records an accepted answer during forced deactivation without replaying it on reopen", async () => {
     const gate = new GateTool({ honorSignal: true });
     const store = new InMemoryStore();
     const service = serviceOn(
       store,
-      [
-        toolStep("ask", "ask_questions", input),
-        toolStep("work", "gate", {}),
-        textStep("Answer after reopen"),
-      ],
+      [toolStep("ask", "ask_questions", input), toolStep("work", "gate", {})],
       gate,
     );
     const conversation = await service.createConversation();
@@ -181,13 +177,15 @@ describe("async questions", () => {
     const request = service.pendingQuestions(conversation.id)[0]!;
     await service.answerQuestion(conversation.id, request.id, response);
     await service.deactivateSession(conversation.id, { force: true });
-    expect((await store.getLatestTurn(conversation.id))?.status).toBe("aborted");
-    expect(await store.listPendingQuestions(conversation.id)).toMatchObject([
-      { deliveryPending: true },
-    ]);
+    expect(await store.listPendingQuestions(conversation.id)).toEqual([]);
+    const messages = await responseMessages(service, conversation.id);
+    expect(messages).toMatchObject([{ turnId: null }]);
+    const lastTurn = await store.getLatestTurn(conversation.id);
+    expect(lastTurn?.status).toBe("aborted");
     await service.prepare(conversation.id);
     await service.whenIdle(conversation.id);
-    expect(await responseMessages(service, conversation.id)).toHaveLength(1);
+    expect(await responseMessages(service, conversation.id)).toEqual(messages);
+    expect(await store.getLatestTurn(conversation.id)).toEqual(lastTurn);
     await service.deactivateSession(conversation.id);
   });
 

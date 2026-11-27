@@ -93,8 +93,13 @@ export class SubagentSendTool implements Tool<z.infer<typeof sendArgs>> {
       return errorResult("Recipient has been dismissed.");
     const chain = await ancestorChain(runner, target);
     await runner.prepare(chain[0]!.id);
-    for (let index = 1; index < chain.length; index++)
-      runner.registerChild(chain[index - 1]!.id, chain[index]!.id);
+    for (let index = 1; index < chain.length; index++) {
+      const id = chain[index]!.id;
+      runner.registerChild(chain[index - 1]!.id, id);
+      // The target loads on delivery. Its owners must already be live if a turn
+      // is interrupted before its activity can register with its direct parent.
+      if (id !== target) await runner.prepare(id);
+    }
     const sender = await identity(runner, ctx.conversationId);
     const senderReference = await readableFamilyReference(
       runner,

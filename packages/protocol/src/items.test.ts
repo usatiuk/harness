@@ -14,6 +14,17 @@ describe("itemSchema", () => {
     content: [{ type: "text", text: "hello" }],
   };
 
+  it("accepts turnless input and base instructions, but not turnless assistant output", () => {
+    for (const schema of [itemSchema, wireItemSchema]) {
+      for (const role of ["user", "system"])
+        expect(schema.parse({ ...message, role, turnId: null })).toMatchObject({
+          role,
+          turnId: null,
+        });
+      expect(schema.safeParse({ ...message, role: "assistant", turnId: null }).success).toBe(false);
+    }
+  });
+
   it.each([undefined, null, "commentary", "final_answer", "provider-phase"])(
     "preserves assistant phase %s at the storage and wire boundaries",
     (phase) => {

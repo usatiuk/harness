@@ -135,7 +135,7 @@ async function setup(
     },
   };
   const store = options.store ?? new InMemoryStore();
-  const subagents = new SubagentsDefinition();
+  const subagents = new SubagentsDefinition((): HarnessService => svc);
   const svc = new HarnessService({
     store,
     home: join(root, "home"),
@@ -166,7 +166,6 @@ async function setup(
       subagents,
     ],
   });
-  subagents.bindRunner(svc);
   const events: HarnessEvent[] = [];
   svc.subscribe((event) => events.push(event));
   const conversation = await svc.createConversation({ cwd: root });

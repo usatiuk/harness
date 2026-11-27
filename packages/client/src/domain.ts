@@ -118,33 +118,32 @@ export const decodeConversation = (conversation: WireConversation): Conversation
 });
 
 export const decodeItem = (item: WireItem): Item => {
-  const base = {
+  const identity = {
     id: item.id as ItemId,
     conversationId: item.conversationId as ConversationId,
-    turnId: item.turnId as TurnId,
     seq: item.seq,
     parent: item.parent as ItemId | null,
     createdAt: item.createdAt,
   };
+  if (item.type === "message" && item.role !== "assistant")
+    return {
+      ...identity,
+      turnId: item.turnId as TurnId | null,
+      type: item.type,
+      role: item.role,
+      content: item.content,
+      ...(item.role === "user" && item.source !== null ? { source: item.source } : {}),
+    };
+  const base = { ...identity, turnId: item.turnId as TurnId };
   switch (item.type) {
     case "message":
-      return item.role === "assistant"
-        ? {
-            ...base,
-            type: item.type,
-            role: item.role,
-            content: item.content,
-            ...(item.phase === null ? {} : { phase: item.phase.value }),
-          }
-        : item.role === "user"
-          ? {
-              ...base,
-              type: item.type,
-              role: item.role,
-              content: item.content,
-              ...(item.source === null ? {} : { source: item.source }),
-            }
-          : { ...base, type: item.type, role: item.role, content: item.content };
+      return {
+        ...base,
+        type: item.type,
+        role: item.role,
+        content: item.content,
+        ...(item.phase === null ? {} : { phase: item.phase.value }),
+      };
     case "reasoning":
     case "provider_output":
       return { ...base, type: item.type, content: item.content };

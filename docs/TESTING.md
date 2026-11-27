@@ -1278,6 +1278,10 @@ delays, or a nearby condition that does not prove completion.
   Compaction/rewind tests bound retained successful and failed child pairs; generic
   request history follows selected branches with explicit pre-compaction access.
   Engine tests cover coalesced waits, batch ordering, deferred queues, pending and arriving steers, timeout and interrupt cleanup. Service tests exercise evaluator exclusion and wakeup from background command completion. Activity tests cover foreground collection and one-shot background notices.
+  The shared-server SQLite reopen regression stops two siblings with a queued
+  message and a final cancellation notice. It checks interrupted tool-result
+  ordering, no inference on stop or attach, and exactly one copy of each input
+  in the next model request.
   Native callback globals are absent from the guest. Service checks preserve
   caught denial evidence and bounded spilled structured previews. Windows native
   code-only qualification uses bundled Node/server/worker/WASM from a temporary
@@ -1859,10 +1863,21 @@ The cause remains unestablished and no test assertions/timeouts were weakened.
 All three subagent cases also pass in GTK WebKit under an isolated virtual display.
 The delivery plan records review fixes and native/live-provider qualification limits.
 
+`rpc-session.test.ts` exercises both sides of send admission with a real client:
+cancellation before admission leaves no message, and forced close after admission
+preserves both a successful response and exactly one saved message. The core
+engine tests distinguish a fresh conversation scope from one retained across
+reopen, including event routing and attribution of delivered input.
+
+`subagent-messaging.test.ts` races tool and programmatic spawns for the final
+slot. The shared store contract exercises failed publication and rollback of
+indexed children. `shared-server.test.ts` reopens a grandchild, interrupts its
+newly acquired turn, and checks the direct parent's saved completion.
+
 Subagent communication follow-up: the full check passes 1,492 tests (41 skipped).
 The model roster is family-scoped and bounded; real service regressions cover
-busy delivery, waking finished recipients, recursive dismissal, slot reuse, four
-concurrent admissions under a three-child limit and depth two. A finished but
+busy delivery, waking finished recipients, recursive dismissal, slot reuse,
+concurrent admission under a three-child limit and depth two. A finished but
 open thread can wake; a closed thread must not. SQLite
 reopen verifies durable dismissal, filtered model roster and preserved inspection.
 Directly opening an old child resolves its canonical root before attachment;

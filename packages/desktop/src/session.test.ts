@@ -14,7 +14,8 @@ import {
   textStep,
 } from "@harness/testkit";
 import type { ConversationId, TurnId } from "@harness/protocol";
-import { spawnSubagent } from "@harness/subagents";
+import { SubagentsDefinition } from "@harness/subagents";
+import { activitiesPlugin } from "@harness/activities";
 import { DesktopSession } from "./session.ts";
 
 it("shares an earlier history load across callers and permits retry after failure", async () => {
@@ -396,11 +397,12 @@ it("marks live assistant output unread only while another conversation is select
 it("opens a live child with its own identity, snapshot and final transcript while retaining the parent", async () => {
   const provider = new GateProvider("Child result");
   const store = new InMemoryStore();
+  const subagents = new SubagentsDefinition((): HarnessService => service);
   const service = new HarnessService({
     codeEvaluator: unusedCodeEvaluator,
     store,
     home: "/nonexistent-harness-home",
-    plugins: [{ id: "fake", providers: () => [provider] }],
+    plugins: [{ id: "fake", providers: () => [provider] }, activitiesPlugin, subagents],
   });
   const pair = createInProcessMessageConnectionPair();
   const host = new HarnessRpcHost(service);
@@ -427,15 +429,13 @@ it("opens a live child with its own identity, snapshot and final transcript whil
     });
     await store.updateTurn(parentTurn.id, "completed");
     const parent = await desktop.load(root.id);
-    const child = await spawnSubagent({
-      runner: service,
+    const child = await subagents.spawn({
       parent: root.id as ConversationId,
       callId: "child",
-      agentName: "explore",
+      agent: "explore",
       name: "Review authentication",
       slug: "auth-review",
       task: "review",
-      overrides: {},
     });
     await provider.started;
     const view = await desktop.load(child.childId);

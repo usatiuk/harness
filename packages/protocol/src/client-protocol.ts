@@ -44,12 +44,14 @@ export const wireItemSchema = z.discriminatedUnion("type", [
     z.strictObject({
       ...messageShape,
       role: z.literal("user"),
+      turnId: idSchema.nullable(),
       source: deliverySourceSchema.nullable().default(null),
       phase: z.null().default(null),
     }),
     z.strictObject({
       ...messageShape,
       role: z.literal("system"),
+      turnId: idSchema.nullable(),
       phase: z.null().default(null),
     }),
   ]),

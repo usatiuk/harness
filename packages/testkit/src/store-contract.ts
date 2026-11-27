@@ -23,6 +23,60 @@ const message = (conversationId: ConversationId, turnId: TurnId, text: string): 
  */
 export function storeContract(name: string, makeStore: () => Store): void {
   describe(name, () => {
+    it("publishes child identity and its unique parent index atomically, including on failure", async () => {
+      const store = makeStore();
+      const root = await store.createConversation(sampleRecord());
+      const childState = {
+        plugin: "family",
+        key: "member",
+        parentIndexKey: "name:one",
+        value: { name: "one" },
+      };
+      const input = { ...sampleRecord(), parentId: root.id, childState };
+      // The last metadata write would collide. No conversation or scoped mark may escape.
+      await store.putPluginState("family", root.id, "name:one", "previous");
+      await expect(store.createConversation(input)).rejects.toThrow();
+      expect(await store.getPluginState("family", root.id, "name:one")).toBe("previous");
+      expect(await store.listConversations()).toEqual([root]);
+      const good = { ...childState, parentIndexKey: "name:two" };
+      const broken = {
+        toJSON() {
+          throw new Error("Cannot serialize mark");
+        },
+      };
+      await expect(
+        store.createConversation({ ...input, childState: { ...good, value: broken } }),
+      ).rejects.toThrow("Cannot serialize mark");
+      expect(await store.getPluginState("family", root.id, "name:two")).toBeUndefined();
+      expect(await store.listConversations()).toEqual([root]);
+      const child = await store.createConversation({ ...input, childState: good });
+      expect(await store.getPluginState("family", child.id, "member")).toEqual(good.value);
+      expect(await store.getPluginState("family", root.id, "name:two")).toBe(child.id);
+      expect(
+        await store.listConversationPage(10, undefined, {
+          includedState: { plugin: "family", key: "member", scope: root.id },
+        }),
+      ).toEqual([child]);
+
+      await store.deleteConversationIfEmpty(child.id);
+      const owner = { parentId: root.id, childState: good };
+      await store.deleteConversationIfEmpty(child.id, { ...owner, parentId: child.id });
+      expect(await store.getConversation(child.id)).toEqual(child);
+      expect(await store.getPluginState("family", root.id, "name:two")).toBe(child.id);
+      expect(await store.getPluginState("family", child.id, "member")).toEqual(good.value);
+      await store.deleteConversationIfEmpty(child.id, owner);
+      expect(await store.getConversation(child.id)).toBeUndefined();
+      expect(await store.getPluginState("family", root.id, "name:two")).toBeUndefined();
+      expect(await store.getPluginState("family", child.id, "member")).toBeUndefined();
+      const used = await store.createConversation({ ...input, childState: good });
+      await store.createTurn(used.id);
+      await store.deleteConversationIfEmpty(used.id, owner);
+      expect(await store.getPluginState("family", root.id, "name:two")).toBe(used.id);
+      expect(await store.getPluginState("family", used.id, "member")).toEqual(good.value);
+      const plain = await store.createConversation({ ...sampleRecord(), parentId: root.id });
+      await store.deleteConversationIfEmpty(plain.id, { parentId: root.id });
+      expect(await store.getConversation(plain.id)).toBeUndefined();
+    });
     it("closes a branch durably without orphaning its history or admitting new descendants", async () => {
       const store = makeStore();
       const root = await store.createConversation(sampleRecord());

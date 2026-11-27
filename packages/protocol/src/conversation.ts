@@ -75,9 +75,23 @@ export type Conversation = ConversationRecord & { config: ConversationConfig };
  */
 export type ConfigResolver = (record: ConversationRecord) => Promise<ConversationConfig>;
 
+/** Publish the child's scoped plugin state and its unique parent-local lookup together. */
+export interface IndexedChildState {
+  plugin: string;
+  key: string;
+  value: unknown;
+  parentIndexKey: string;
+}
+
+export interface ChildOwnership {
+  parentId: ConversationId;
+  childState?: IndexedChildState;
+}
+
+export type ConversationParent = { parentId?: never; childState?: never } | ChildOwnership;
+
 /** The durable fields a caller supplies to create a conversation; the store assigns the rest. */
-export type NewConversationRecord = {
-  parentId?: ConversationId;
+export type NewConversationRecord = ConversationParent & {
   workspaceRoot: string | null;
   /** Original checkout and settings root, retained when execution switches workspaces. */
   originalWorkspaceRoot?: string;

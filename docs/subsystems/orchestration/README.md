@@ -127,11 +127,21 @@ changing tool access or approval policy. Setting an agent array replaces the def
 depth defaults to two (root, child, grandchild).
 Each parent defaults to three active direct children; finished children count
 until dismissed. Both limits are positive integer settings (`maxDepth`,
-`maxChildren`) exposed in the desktop and TUI host defaults. Parent-local spawn
-admission prevents parallel calls exceeding the limit. A child
+`maxChildren`) exposed in the desktop and TUI host defaults. The tool and
+programmatic callers use the same configured plugin's `spawn` operation. It
+serializes eligibility, roster and slug checks with child creation per parent,
+so concurrent callers cannot take the same slot. It publishes the child, spawn
+mark and slug atomically, then releases the lock before sending the initial
+task. If that send fails, the error identifies the child already on the roster.
+A successful spawn acknowledges admission,
+not a completed turn. A child
 inherits the parent's workspace root, creates its own durable conversation,
 receives its own `AGENTS.md` snapshot, and starts from the delegated task rather
 than the parent's transcript.
+
+When a historical child is reopened or woken, its open ancestors are prepared
+before its turn starts. That lets the direct parent receive even a completion
+from a turn interrupted immediately by shutdown. Closed ancestors remain history.
 
 HarnessService inherits the parent's effective model and configuration slices
 whose plugin definitions set `inheritConfig`. Sandbox opts in, preserving a
@@ -190,9 +200,10 @@ without starting work. Opening such a child uses ordinary crash reconciliation,
 which records the interrupted turn as Failed without resuming it.
 Names and parent links come from durable spawn metadata;
 status reuses the ordinary turn record. No orchestration handles are recreated
-merely to list children. Opening a historical child restores its durable ancestry
-inside the ordinary canonical root attachment lease, preserving live delivery
-and whole-tree teardown across restart.
+merely to list children. Opening or messaging a historical child prepares its
+open ancestors from root to direct parent before the child can run, so even a
+turn interrupted at startup has a live owner for its result. Attachment includes
+closed ancestors as history only; it does not activate siblings or descendants.
 
 Spawned conversation inspection uses the ordinary attach/history path, with a
 full clickable ancestor chain and no composer, rename, worktree or Fork controls. The RPC

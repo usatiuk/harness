@@ -2,7 +2,13 @@ import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { Box, Static, Text, render } from "ink";
 import { Terminal } from "@xterm/headless";
-import { zeroUsage, type Conversation, type HarnessEvent, type Item } from "@harness/protocol";
+import {
+  zeroUsage,
+  type Conversation,
+  type HarnessEvent,
+  type Item,
+  type TurnId,
+} from "@harness/protocol";
 import { testEventClient } from "./test-client-service.ts";
 import { App, LiveViewport } from "./app.tsx";
 import { Markdown } from "./markdown.tsx";
@@ -54,7 +60,7 @@ const toolCall = (callId: string, name: string, args: unknown): HarnessEvent => 
     type: "tool_call",
     id: `tool-call:${callId}` as Item["id"],
     conversationId: "c1" as Item["conversationId"],
-    turnId: "t1" as Item["turnId"],
+    turnId: "t1" as TurnId,
     seq: 0,
     parent: null,
     createdAt: 0,
@@ -71,7 +77,7 @@ const toolResult = (callId: string, content: string): HarnessEvent => ({
     type: "tool_result",
     id: `tool-result:${callId}` as Item["id"],
     conversationId: "c1" as Item["conversationId"],
-    turnId: "t1" as Item["turnId"],
+    turnId: "t1" as TurnId,
     seq: 1,
     parent: null,
     createdAt: 0,

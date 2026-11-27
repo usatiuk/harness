@@ -27,8 +27,10 @@ provider status and the provider-config update request. Version 4 clients and
 servers fail the exact-version handshake; no settings compatibility adapter exists.
 
 Both peers may make requests. The requester may cancel with the standard
-`$/cancelRequest` notification; handlers observe an abort signal and cancelled
-work returns error `-32800` when a response has not already won the race.
+`$/cancelRequest` notification. A handler can reject with cancellation (`-32800`)
+before accepting work. Its successful result stands even if the signal was
+aborted before the response was sent. A requester that stops waiting may not
+know whether the work was accepted.
 Connection closure rejects outstanding requests and removes that observer. Accepted
 work and prepared root runtimes belong to the shared server.
 Unknown requests return `Method not found`; unknown optional notifications may be

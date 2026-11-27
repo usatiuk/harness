@@ -1,3 +1,4 @@
+import { depthOf } from "./spawn.ts";
 import { describe, expect, it } from "vitest";
 import type {
   Conversation,
@@ -17,9 +18,8 @@ import type {
 import { SubagentActivity } from "./activity.ts";
 import { textOf } from "@harness/protocol";
 import {
-  SubagentRegistry,
+  SubagentsDefinition,
   SubagentTool,
-  depthOf,
   subagentContractResolver,
   subagentsConfigSchema,
 } from "./index.ts";
@@ -49,6 +49,9 @@ function fakeRunner(): FakeRunner {
   const state = new Map<string, unknown>();
   return {
     created,
+    scope: async () => {
+      throw new Error("Unexpected conversation scope");
+    },
     prepare: async () => {},
     registerChild: () => {},
     closeThread: async () => {},
@@ -58,6 +61,11 @@ function fakeRunner(): FakeRunner {
     listConversationPage: async () => [],
     async createConversation(opts) {
       const child = record(id(`child${created.length + 1}`), opts.overrides ?? {});
+      if (opts.childState) {
+        const { plugin, key, value, parentIndexKey } = opts.childState;
+        state.set(`${plugin}|${child.id}|${key}`, value);
+        state.set(`${plugin}|${opts.parentId}|${parentIndexKey}`, child.id);
+      }
       created.push(child);
       return child;
     },
@@ -75,6 +83,12 @@ function fakeRunner(): FakeRunner {
 const fakeReader = (cfg: unknown): { get: () => Promise<unknown> } => ({
   get: () => Promise.resolve(cfg),
 });
+
+function spawnDefinition(runner: ConversationRunner, config: unknown) {
+  const def = new SubagentsDefinition(() => runner);
+  def.create(fakeReader(subagentsConfigSchema.parse(config)) as never);
+  return def;
+}
 
 function ctx(conversationId: ConversationId, callId = "call_1"): ToolMiddlewareContext {
   return {
@@ -106,11 +120,7 @@ describe("SubagentTool — spawn", () => {
     runner.deliver = async () => {
       throw new Error("admission refused");
     };
-    const tool = new SubagentTool({
-      reader: fakeReader({ agents: [AGENT] }) as never,
-      runner: () => runner,
-      registry: new SubagentRegistry(),
-    });
+    const tool = new SubagentTool(spawnDefinition(runner, { agents: [AGENT] }));
     const owner = id("parent");
     await expect(
       tool.execute(
@@ -127,42 +137,111 @@ describe("SubagentTool — spawn", () => {
 
   it("keeps parent-supplied task identity and rejects duplicate slugs across concurrent calls and sessions", async () => {
     const runner = fakeRunner();
-    const registry = new SubagentRegistry();
-    const tool = new SubagentTool({
-      reader: fakeReader({ agents: [AGENT] }) as never,
-      runner: () => runner,
-      registry,
-    });
+    const definition = spawnDefinition(runner, { agents: [AGENT] });
     const args = {
       agent: "researcher",
       name: "Review authentication",
       slug: "auth-review",
       task: "review",
     };
-    const results = await Promise.all([
-      tool.execute(args, ctx(id("parent"), "first")),
-      tool.execute(args, ctx(id("parent"), "second")),
-    ]);
-    expect(results.map((result) => result.status).sort()).toEqual(["error", "ok"]);
+    const results = await Promise.allSettled(
+      ["first", "second"].map((callId) =>
+        definition.spawn({ ...args, parent: id("parent"), callId }),
+      ),
+    );
     expect(runner.created).toHaveLength(1);
-    const fresh = new SubagentTool({
-      reader: fakeReader({ agents: [AGENT] }) as never,
-      runner: () => runner,
-      registry: new SubagentRegistry(),
+    expect(results).toContainEqual({
+      status: "fulfilled",
+      value: { childId: runner.created[0]!.id, name: args.name, slug: args.slug },
     });
+    expect(results.find((result) => result.status === "rejected")?.reason).toHaveProperty(
+      "message",
+      "subagent slug already exists: auth-review",
+    );
+    const fresh = new SubagentTool(spawnDefinition(runner, { agents: [AGENT] }));
     expect((await fresh.execute(args, ctx(id("parent"), "third"))).status).toBe("error");
     expect((await fresh.execute(args, ctx(id("other")))).status).toBe("ok");
     expect(runner.created).toHaveLength(2);
   });
 
+  it("rejects attempts to select an unknown profile or inject child overrides programmatically", async () => {
+    const runner = fakeRunner();
+    const definition = spawnDefinition(runner, { agents: [AGENT] });
+    const request = {
+      parent: id("parent"),
+      callId: "first",
+      name: "Review",
+      slug: "review",
+      task: "inspect",
+    };
+    await expect(definition.spawn({ ...request, agent: "ghost" })).rejects.toThrow("unknown agent");
+    const injected = {
+      ...request,
+      agent: AGENT.name,
+      overrides: { instructions: "replace profile" },
+    };
+    await expect(definition.spawn(injected)).rejects.toThrow(/overrides/);
+    expect(runner.created).toHaveLength(0);
+  });
+
+  it("cancels a queued spawn without letting a later request overtake unpublished membership", async () => {
+    const gate = () => {
+      let open!: () => void;
+      const promise = new Promise<void>((resolve) => (open = resolve));
+      return { promise, open };
+    };
+    const runner = fakeRunner();
+    const definition = spawnDefinition(runner, { agents: [AGENT] });
+    const parent = id("parent");
+    const request = { parent, agent: AGENT.name, slug: "review", name: "Review", task: "inspect" };
+    const checking = gate(),
+      publish = gate(),
+      delivery = gate();
+    let firstCheck = true;
+    runner.listConversationPage = async () => {
+      if (firstCheck) {
+        firstCheck = false;
+        checking.open();
+        await publish.promise;
+      }
+      return [];
+    };
+    runner.deliver = async (_id, seed) => {
+      if (typeof seed === "string" && seed.endsWith("first task")) await delivery.promise;
+    };
+    const first = definition.spawn({ ...request, callId: "first", task: "first task" });
+    await checking.promise;
+    try {
+      const controller = new AbortController();
+      const contender = definition.spawn({
+        ...request,
+        callId: "cancelled",
+        slug: "cancelled",
+        signal: controller.signal,
+      });
+      controller.abort(new Error("withdrawn"));
+      await expect(contender).rejects.toThrow("withdrawn");
+      const later = definition.spawn({ ...request, callId: "later" });
+      // Let a different parent complete a full admission while the first parent remains locked.
+      const independent = await definition.spawn({
+        ...request,
+        parent: id("other"),
+        callId: "independent",
+      });
+      expect(runner.created.map((child) => child.id)).toEqual([independent.childId]);
+      publish.open();
+      await expect(later).rejects.toThrow("slug already exists");
+      expect(runner.created).toHaveLength(2);
+    } finally {
+      publish.open();
+      delivery.open();
+      await first;
+    }
+  });
+
   it("returns the launched child identity and stamps parentage", async () => {
     const runner = fakeRunner();
-    const registry = new SubagentRegistry();
-    const tool = new SubagentTool({
-      reader: fakeReader({ agents: [AGENT], maxDepth: 3 }) as never,
-      runner: () => runner,
-      registry,
-    });
+    const tool = new SubagentTool(spawnDefinition(runner, { agents: [AGENT], maxDepth: 3 }));
 
     const result = await tool.execute(
       { agent: "researcher", name: "Research task", slug: "research-task", task: "find x" },
@@ -188,11 +267,7 @@ describe("SubagentTool — spawn", () => {
 
   it("errors on an unknown agent and spawns nothing", async () => {
     const runner = fakeRunner();
-    const tool = new SubagentTool({
-      reader: fakeReader({ agents: [AGENT], maxDepth: 3 }) as never,
-      runner: () => runner,
-      registry: new SubagentRegistry(),
-    });
+    const tool = new SubagentTool(spawnDefinition(runner, { agents: [AGENT], maxDepth: 3 }));
     const result = await tool.execute(
       { agent: "ghost", name: "Research task", slug: "research-task", task: "x" },
       ctx(id("parent")),
@@ -211,11 +286,7 @@ describe("SubagentTool — depth", () => {
       parent: { conversationId: id("grandparent"), callId: "x" },
       agent: "researcher",
     });
-    const tool = new SubagentTool({
-      reader: fakeReader({ agents: [AGENT], maxDepth: 1 }) as never,
-      runner: () => runner,
-      registry: new SubagentRegistry(),
-    });
+    const tool = new SubagentTool(spawnDefinition(runner, { agents: [AGENT], maxDepth: 1 }));
     const result = await tool.execute(
       { agent: "researcher", name: "Research task", slug: "research-task", task: "x" },
       ctx(id("parent")),
@@ -233,11 +304,7 @@ describe("SubagentTool — depth", () => {
       parent: { conversationId: id("grandparent"), callId: "x" },
       agent: "researcher",
     });
-    const tool = new SubagentTool({
-      reader: fakeReader({ agents: [AGENT], maxDepth: 2 }) as never,
-      runner: () => runner,
-      registry: new SubagentRegistry(),
-    });
+    const tool = new SubagentTool(spawnDefinition(runner, { agents: [AGENT], maxDepth: 2 }));
     await tool.execute(
       { agent: "researcher", name: "Research task", slug: "research-task", task: "x" },
       ctx(id("parent")),
@@ -248,11 +315,7 @@ describe("SubagentTool — depth", () => {
   it("a child whose agent omits `subagent` cannot delegate", async () => {
     const runner = fakeRunner();
     const leaf = { ...AGENT, tools: { allow: ["read"] } };
-    const tool = new SubagentTool({
-      reader: fakeReader({ agents: [leaf], maxDepth: 3 }) as never,
-      runner: () => runner,
-      registry: new SubagentRegistry(),
-    });
+    const tool = new SubagentTool(spawnDefinition(runner, { agents: [leaf], maxDepth: 3 }));
     await tool.execute(
       { agent: "researcher", name: "Research task", slug: "research-task", task: "x" },
       ctx(id("parent")),

@@ -10,7 +10,7 @@ import type {
   ToolSchema,
 } from "@harness/protocol";
 import { subagentsConfigSchema, type AgentDef, type SubagentsConfig } from "./config.ts";
-import { SubagentRegistry } from "./registry.ts";
+import { createSpawnOperation, type SpawnRequest } from "./spawn.ts";
 import { SubagentDismissTool, SubagentListTool, SubagentSendTool } from "./messages.ts";
 import { SubagentTool } from "./tool.ts";
 import { SubagentActivity } from "./activity.ts";
@@ -53,38 +53,38 @@ function withRoster(tool: ToolSchema, agents: AgentDef[]): ToolSchema {
   };
 }
 
-/** The composed subagents plugin: one generic tool and its turn-local contract resolver. */
-class SubagentsPlugin implements Plugin {
+/** Service-owned catalog and spawn admission, shared by tools and programmatic callers. */
+export class SubagentsDefinition implements PluginDefinition {
   readonly id = "subagents";
-  readonly #reader: ConfigReader;
-  readonly #def: SubagentsDefinition;
+  readonly configSchema: ZodType = subagentsConfigSchema;
+  #spawn?: ReturnType<typeof createSpawnOperation>;
 
-  constructor(reader: ConfigReader, def: SubagentsDefinition) {
-    this.#reader = reader;
-    this.#def = def;
+  constructor(private readonly runner: () => ConversationRunner) {}
+
+  create(reader: ConfigReader): Plugin {
+    if (this.#spawn) throw new Error("Subagents definition already registered");
+    this.#spawn = createSpawnOperation(reader, this.runner);
+    return {
+      id: this.id,
+      tools: () => [
+        new SubagentListTool(this.runner),
+        new SubagentDismissTool(this.runner),
+        new SubagentSendTool(this.runner),
+        new SubagentTool(this),
+      ],
+      onTurnStart: (ctx) => this.#trackTurn(ctx),
+      toolContracts: () => [subagentContractResolver(reader)],
+    };
   }
 
-  tools() {
-    return [
-      new SubagentListTool(() => this.#def.runner()),
-      new SubagentDismissTool(() => this.#def.runner()),
-      new SubagentSendTool(() => this.#def.runner()),
-      new SubagentTool({
-        reader: this.#reader,
-        runner: () => this.#def.runner(),
-        registry: this.#def.registry,
-      }),
-    ];
-  }
-
-  async onTurnStart({ conversation, turnId, scope }: TurnStartContext) {
+  async #trackTurn({ conversation, turnId }: TurnStartContext) {
     const parentId = conversation.parentId;
     if (!parentId) return;
-    const runner = this.#def.runner();
+    const runner = this.runner();
     const mark = await spawnMark(runner, conversation.id);
     if (!mark) return;
     if (mark.parent.conversationId !== parentId) throw new Error("Subagent parent mismatch");
-    const owner = await scope(parentId);
+    const owner = await runner.scope(parentId, this.id);
     const manager = activitiesOf(owner);
     manager.track(
       new SubagentActivity({
@@ -99,40 +99,8 @@ class SubagentsPlugin implements Plugin {
     manager.notifyOnExit(turnId, owner.deliver);
   }
 
-  toolContracts() {
-    return [subagentContractResolver(this.#reader)];
+  spawn(request: SpawnRequest) {
+    if (!this.#spawn) throw new Error("Subagents definition is not registered");
+    return this.#spawn(request);
   }
 }
-
-/**
- * Config-owning definition for the `plugins.subagents` slice. The catalog (agents/maxDepth) is
- * validated centrally and reaches the plugin via the `ConfigReader`; the runner is late-bound at
- * the composition root (`bindRunner`) since the service isn't constructed when the plugin is built.
- */
-export class SubagentsDefinition implements PluginDefinition {
-  readonly id = "subagents";
-  readonly configSchema: ZodType = subagentsConfigSchema;
-  readonly registry = new SubagentRegistry();
-  #runner: ConversationRunner | undefined;
-
-  create(reader: ConfigReader): Plugin {
-    return new SubagentsPlugin(reader, this);
-  }
-
-  /** Late-bind the runner; called once at the composition root, after the service is constructed. */
-  bindRunner(runner: ConversationRunner): void {
-    this.#runner = runner;
-  }
-
-  /** The bound runner; throws if read before `bindRunner` (i.e. before any tool could run). */
-  runner(): ConversationRunner {
-    if (!this.#runner) {
-      throw new Error(
-        "subagents: runner not bound — call bindRunner after constructing the service",
-      );
-    }
-    return this.#runner;
-  }
-}
-
-export const subagentsDefinition = new SubagentsDefinition();

@@ -1,5 +1,12 @@
 # Harness plan
 
+The completed [plugin operation boundaries plan](docs/plans/cross-cutting/2026-11-27-plugin-operation-boundaries.md)
+records verified delivery acknowledgements, activation-bound handles and one
+checked subagent spawn operation.
+
+[Orderly shutdown](docs/plans/cross-cutting/2026-11-27-save-inbox-on-close.md)
+saves pending conversation input without waking the model.
+
 [Child turn activities](docs/plans/orchestration/2026-11-27-child-turn-activities.md)
 separates interruption of one run from permanent subagent dismissal.
 

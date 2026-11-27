@@ -45,9 +45,11 @@
     "vscode-jsonrpc": "^8.2.0"
   },
   "devDependencies": {
+    "@harness/activities": "*",
     "@harness/service": "*",
     "@harness/store": "*",
     "@harness/store-sqlite": "*",
+    "@harness/subagents": "*",
     "@harness/testkit": "*",
     "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.12.0",

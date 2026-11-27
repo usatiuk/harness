@@ -52,14 +52,8 @@ export const okResult = (text: string): ToolResult => ({
   status: "ok",
 });
 
-/** Per-call environment handed to a tool. */
-export interface ToolContext {
-  conversationId: ConversationId;
-  /** This call's id (`ToolCall.callId`); lets a tool correlate state it registers for itself. */
-  callId: string;
-  signal: AbortSignal;
-  /** Present only on the core evaluator entry point. Closed when the call ends. */
-  codeTools?: CodeToolBridge;
+/** Plugin operations bound to one conversation activation, not to an individual turn. */
+export interface ConversationScope {
   /**
    * A per-conversation service a plugin hangs off `ctx`, keyed and built lazily by its
    * `ServiceProvider` (e.g. the execution substrate under `"execution"`, or an activity
@@ -68,15 +62,24 @@ export interface ToolContext {
    */
   service(key: string): unknown;
   /** Emit a plugin-defined event onto the conversation's stream. */
-  emit(event: PluginEvent): void;
+  emit(this: void, event: PluginEvent): void;
   /**
    * Deliver plugin-originated content into this conversation as a `steer`: it surfaces at the
    * next after-tool-result boundary of a live turn, or starts a turn when idle. Valid after the
-   * call returns (it closes over the conversation, not the turn) — so a backgrounded unit of work
-   * can wake the agent long after its spawning tool returned. Stamped with the dispatching tool's
-   * name as provenance.
+   * call returns, but never delivered to a replacement activation. The originating plugin or
+   * tool name is captured when the scope is acquired.
    */
-  deliver(content: ContentBlock[]): void;
+  deliver(this: void, content: ContentBlock[]): void;
+}
+
+/** Per-call environment handed to a tool. */
+export interface ToolContext extends ConversationScope {
+  conversationId: ConversationId;
+  /** This call's id (`ToolCall.callId`); lets a tool correlate state it registers for itself. */
+  callId: string;
+  signal: AbortSignal;
+  /** Present only on the core evaluator entry point. Closed when the call ends. */
+  codeTools?: CodeToolBridge;
 }
 
 /**

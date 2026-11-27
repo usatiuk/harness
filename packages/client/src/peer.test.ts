@@ -269,6 +269,26 @@ describe("RpcPeer", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("returns a completed handler's result if cancellation arrives before its response", async () => {
+    const { client, server } = createPeers();
+    let committed!: () => void;
+    const accepted = new Promise<void>((resolve) => (committed = resolve));
+    server.onRequest(clientEcho, async (params, signal) => {
+      committed();
+      // Hold the reply after the effect, until the caller's cancellation arrives.
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      return params;
+    });
+    await initialize(client);
+    const cancel = new AbortController();
+    const request = client.request(clientEcho, { value: "committed" }, { signal: cancel.signal });
+    await accepted;
+    cancel.abort();
+    await expect(request).resolves.toEqual({ value: "committed" });
+  });
+
   it("delivers validated notifications and closes on malformed ones", async () => {
     const protocolError = vi.fn();
     const connections = createInProcessMessageConnectionPair();

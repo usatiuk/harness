@@ -92,13 +92,41 @@ it("notifies plugins for acquired ordinary and compaction turns, not each admitt
   expect(acquired).toEqual([first.id, second.id, compact.id]);
 });
 
-it("delivers child-turn notices to the captured parent activation, not its replacement", async () => {
-  let notify!: (text: string) => void;
-  const { engine, store } = setup([textStep("child result"), textStep("parent result")], {
-    onTurnStart: async ({ conversation, scope }) => {
+it("looks up the current activation without retargeting handles captured before reopen", async () => {
+  const { engine, store, events } = setup([textStep("done")], {
+    services: () => [{ key: "reports", for: () => ({}) }],
+  });
+  const { id } = await store.createConversation(newConversationInput(CONFIG));
+  const old = await engine.scope(id, "reporter");
+  const reports = old.service("reports");
+  await engine.deactivate(id);
+  await engine.prepare(id);
+  const current = await engine.scope(id, "reporter");
+  expect(current.service("reports")).not.toBe(reports);
+  expect(() => old.service("reports")).toThrow(/inactive runtime/);
+  old.deliver([{ type: "text", text: "stale" }]);
+  old.emit({ type: "report.stale" });
+  current.emit({ type: "report.ready", conversationId: "wrong-recipient" });
+  current.deliver([{ type: "text", text: "ready" }]);
+  await engine.whenIdle(id);
+  expect(events.some((e) => e.type === "report.stale")).toBe(false);
+  expect(events).toContainEqual({ type: "report.ready", conversationId: id });
+  const history = await store.listActiveItems(id);
+  expect(userTexts(history)).toEqual(["ready"]);
+  expect(history.find((item) => item.type === "message" && item.role === "user")).toMatchObject({
+    source: { kind: "plugin", pluginId: "reporter" },
+  });
+});
+
+it("finishes teardown when a completion reaches an idle parent during cancellation", async () => {
+  let complete!: () => void;
+  const { engine, store } = setup([textStep("done"), textStep("parent reply")], {
+    services: () => [{ key: "background", for: () => ({}), cancel: () => complete() }],
+    onTurnStart: async ({ conversation }) => {
       if (!conversation.parentId) return;
-      const parent = await scope(conversation.parentId);
-      notify = (text) => parent.deliver([{ type: "text", text }]);
+      const parent = await engine.scope(conversation.parentId, "background");
+      parent.service("background");
+      complete = () => parent.deliver([{ type: "text", text: "child completed" }]);
     },
   });
   const input = newConversationInput(CONFIG);
@@ -108,17 +136,55 @@ it("delivers child-turn notices to the captured parent activation, not its repla
   engine.registerChild(root.id, child.id);
   await engine.deliver(child.id, userInput("start"));
   await engine.whenIdle(child.id);
-  notify("child completed");
-  await engine.whenIdle(root.id);
-  await engine.deactivate(root.id);
-  await engine.prepare(root.id);
-  notify("stale notice");
-  await engine.whenIdle(root.id);
-  const history = await store.listActiveItems(root.id);
-  expect(userTexts(history)).toEqual(["child completed"]);
-  expect(history.find((item) => item.type === "message" && item.role === "user")).toMatchObject({
-    source: { kind: "plugin", pluginId: "fake" },
+
+  await expect(engine.deactivate(root.id, { force: true })).resolves.toEqual({
+    status: "deactivated",
   });
+  expect(await store.getLatestTurn(root.id)).toBeUndefined();
+  await engine.prepare(root.id);
+  await engine.whenIdle(root.id);
+  expect(await store.getLatestTurn(root.id)).toBeUndefined();
+  await engine.deliver(root.id, userInput("continue"));
+  await engine.whenIdle(root.id);
+  const history = await store.listOwnedItems(root.id);
+  expect(history[0]).toMatchObject({ type: "message", role: "system", turnId: null });
+  expect(userTexts(history)).toEqual(["child completed", "continue"]);
+  expect(history.at(-1)).toMatchObject({ type: "message", role: "assistant" });
+});
+
+it("reports an unsuccessful final write and retries only the unsaved inbox without running a turn", async () => {
+  const { store, engine } = setup([]);
+  const input = newConversationInput(CONFIG);
+  const parent = await store.createConversation(input);
+  const { id } = await store.createConversation({ ...input, parentId: parent.id });
+  await engine.prepare(parent.id);
+  // Inspected independently before the parent adopts its historical child.
+  await engine.prepare(id);
+  const append = store.appendItem.bind(store);
+  const failure = vi.spyOn(store, "appendItem").mockImplementation(async (item) => {
+    if (
+      item.type === "message" &&
+      item.content.some((block) => block.type === "text" && block.text === "second")
+    )
+      throw new Error("disk full");
+    return append(item);
+  });
+  // Both calls have entered admission; stop claims the group before either can wake a turn.
+  const sends = Promise.all(["first", "second"].map((text) => engine.deliver(id, userInput(text))));
+  await expect(
+    engine.stopSessions([id], async () => {
+      await sends;
+    }),
+  ).rejects.toThrow("disk full");
+  expect(userTexts(await store.listOwnedItems(id))).toEqual(["first"]);
+  await expect(engine.prepare(id)).rejects.toThrow(/retry.*close/i);
+  expect(() => engine.registerChild(parent.id, id)).toThrow(/retry.*close/i);
+  failure.mockRestore();
+  await engine.deactivate(id, { force: true });
+  engine.registerChild(parent.id, id);
+  await engine.prepare(id);
+  expect(userTexts(await store.listOwnedItems(id))).toEqual(["first", "second"]);
+  expect(await store.getLatestTurn(id)).toBeUndefined();
 });
 
 it("seals executing descendants, discards queued wakes, and leaves siblings usable", async () => {
@@ -836,7 +902,7 @@ describe("Engine — turn cycle", () => {
     ]);
   });
 
-  it("force-deactivates a running conversation tree and discards queued input", async () => {
+  it("force-deactivates a running conversation tree and saves queued input without a turn", async () => {
     const store = new InMemoryStore(counterIdGenerator(), fixedClock());
     const provider = new GateProvider("partial");
     const engine = new Engine(
@@ -854,7 +920,9 @@ describe("Engine — turn cycle", () => {
       status: "deactivated",
     });
 
-    expect(userTexts(await store.listOwnedItems(conv.id))).toEqual(["first"]);
+    const history = await store.listOwnedItems(conv.id);
+    expect(userTexts(history)).toEqual(["first", "queued"]);
+    expect(history.at(-1)).toMatchObject({ type: "message", role: "user", turnId: null });
     expect(await store.getActiveTurn(conv.id)).toBeUndefined();
   });
 

@@ -26,6 +26,7 @@ import type {
   ConversationRecord,
   ContextBuild,
   IdGenerator,
+  ChildOwnership,
   Item,
   ItemId,
   ModelUsage,
@@ -57,7 +58,7 @@ type ItemRow = Database["items"];
 type AppendParams = {
   id: string;
   conversationId: string;
-  turnId: string;
+  turnId: string | null;
   type: string;
   callId: string | null;
   createdAt: number;
@@ -246,22 +247,35 @@ export class SqliteStore implements Store {
       createdAt,
       lastUsedAt: createdAt,
     };
-    await this.#k
-      .insertInto("conversations")
-      .values({
-        id: record.id,
-        thread_parent: input.parentId ?? null,
-        closed: 0,
-        workspace_root: record.workspaceRoot,
-        original_workspace_root: record.originalWorkspaceRoot ?? null,
-        overrides: JSON.stringify(record.overrides),
-        head: null,
-        title: null,
-        created_at: record.createdAt,
-        last_used_at: record.lastUsedAt,
-        fork_origin: null,
-      })
-      .execute();
+    const insert = () =>
+      this.#db
+        .prepare(
+          `INSERT INTO conversations
+      (id, thread_parent, closed, workspace_root, original_workspace_root, overrides, head, title, created_at, last_used_at, fork_origin)
+      VALUES (?, ?, 0, ?, ?, ?, NULL, NULL, ?, ?, NULL)`,
+        )
+        .run(
+          record.id,
+          input.parentId ?? null,
+          record.workspaceRoot,
+          record.originalWorkspaceRoot ?? null,
+          JSON.stringify(record.overrides),
+          record.createdAt,
+          record.lastUsedAt,
+        );
+    if (input.childState) {
+      const { plugin, key, value, parentIndexKey } = input.childState;
+      this.#db
+        .transaction(() => {
+          insert();
+          const state = this.#db.prepare(
+            "INSERT INTO plugin_state (plugin, conversation_id, key, value, scope) VALUES (?, ?, ?, ?, ?)",
+          );
+          state.run(plugin, record.id, key, JSON.stringify(value), input.parentId);
+          state.run(plugin, input.parentId, parentIndexKey, JSON.stringify(record.id), null);
+        })
+        .immediate();
+    } else insert();
     return record;
   }
 
@@ -356,24 +370,34 @@ export class SqliteStore implements Store {
     return row ? rowToRecord(row) : undefined;
   }
 
-  async deleteConversationIfEmpty(id: ConversationId): Promise<void> {
-    await this.#k
-      .deleteFrom("conversations")
-      .where("id", "=", id)
-      .where("closed", "=", 0)
-      .where((eb) =>
-        eb.not(
-          eb.exists(
-            eb
-              .selectFrom("conversations as child")
-              .select("child.id")
-              .whereRef("child.thread_parent", "=", "conversations.id"),
-          ),
-        ),
-      )
-      .where("head", "is", null)
-      .where("id", "not in", (eb) => eb.selectFrom("turns").select("conversation_id"))
-      .execute();
+  async deleteConversationIfEmpty(id: ConversationId, owner?: ChildOwnership): Promise<void> {
+    this.#db
+      .transaction(() => {
+        const row = this.#db
+          .prepare(
+            `SELECT 1 FROM conversations c
+        WHERE id = ? AND thread_parent IS ? AND closed = 0 AND head IS NULL
+        AND NOT EXISTS (SELECT 1 FROM conversations WHERE thread_parent = c.id)
+        AND NOT EXISTS (SELECT 1 FROM turns WHERE conversation_id = c.id)`,
+          )
+          .get(id, owner?.parentId ?? null);
+        if (!row) return;
+        if (owner?.childState) {
+          const { plugin, key, parentIndexKey } = owner.childState;
+          this.#db
+            .prepare(
+              "DELETE FROM plugin_state WHERE plugin = ? AND conversation_id = ? AND key = ?",
+            )
+            .run(plugin, id, key);
+          this.#db
+            .prepare(
+              "DELETE FROM plugin_state WHERE plugin = ? AND conversation_id = ? AND key = ? AND value = ?",
+            )
+            .run(plugin, owner.parentId, parentIndexKey, JSON.stringify(id));
+        }
+        this.#db.prepare("DELETE FROM conversations WHERE id = ?").run(id);
+      })
+      .immediate();
   }
 
   async updateConversationOverrides(

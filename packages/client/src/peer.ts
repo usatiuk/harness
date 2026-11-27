@@ -270,9 +270,7 @@ export class RpcPeer {
     const cancellation = token.onCancellationRequested(() => controller.abort());
     try {
       const rawResult = await handler(params, controller.signal);
-      if (controller.signal.aborted) {
-        return new ResponseError(REQUEST_CANCELLED_ERROR_CODE, "request cancelled");
-      }
+      // Cancellation is cooperative. A handler may already have committed its result.
       const result = definition.result.safeParse(rawResult);
       if (!result.success) {
         this.options.onHandlerError?.(

@@ -17,6 +17,8 @@ import {
   ActivityPeekTool,
   activitiesOf,
   activitiesPlugin,
+  isActivityEvent,
+  type ActivityEvent,
   type ActivityResult,
 } from "@harness/activities";
 import {
@@ -28,6 +30,7 @@ import {
 } from "@harness/subagents";
 import {
   textOf,
+  isKernelEvent,
   okResult,
   type Tool,
   type ConversationId,
@@ -52,7 +55,7 @@ async function setup(
   const routes = new Map<ConversationId, Pick<ModelProvider, "stream">>();
   provider.stream = (request, signal, context) =>
     (routes.get(context.conversationId) ?? fallback).stream(request, signal, context);
-  const subagents = new SubagentsDefinition();
+  const subagents = new SubagentsDefinition((): HarnessService => service);
   const service = new HarnessService({
     store,
     home,
@@ -64,7 +67,6 @@ async function setup(
     ],
     defaults: { model: { provider: "fake", model: "fake-1" } },
   });
-  subagents.bindRunner(service);
   const root = await service.createConversation({});
   await service.prepare(root.id);
   let calls = 0;
@@ -76,17 +78,7 @@ async function setup(
       service: (key: string) => service.service(id, key),
       emit: () => {},
     }) as unknown as ToolContext;
-  const spawn = new SubagentTool({
-    runner: () => service,
-    registry: subagents.registry,
-    reader: {
-      get: async () => ({
-        agents: [{ name: "general", description: "test", systemPrompt: "test" }],
-        maxDepth: 2,
-        maxChildren: 3,
-      }),
-    } as never,
-  });
+  const spawn = new SubagentTool(subagents);
   const create = async (parent: ConversationId, slug: string, name = slug) => {
     const result = await spawn.execute(
       { agent: "general", name, slug, task: slug },
@@ -111,6 +103,7 @@ async function setup(
     store,
     root,
     spawn,
+    subagents,
     create,
     context,
     routes,
@@ -120,33 +113,59 @@ async function setup(
   };
 }
 
+it("rolls back child publication if its parent deactivates before runtime registration", async () => {
+  const f = await setup();
+  const create = f.store.createConversation.bind(f.store);
+  vi.spyOn(f.store, "createConversation").mockImplementationOnce(async (input) => {
+    const child = await create(input);
+    await f.service.deactivateSession(f.root.id, { force: true });
+    return child;
+  });
+  const request = {
+    parent: f.root.id,
+    name: "Review",
+    slug: "review",
+    agent: "general",
+    task: "Review the change",
+  };
+  await expect(f.subagents.spawn(request)).rejects.toThrow(/inactive|closing/);
+  expect((await f.store.listConversations()).map(({ id }) => id)).toEqual([f.root.id]);
+  expect(await f.store.getPluginState("subagents", f.root.id, "slug:review")).toBeUndefined();
+  await f.service.prepare(f.root.id);
+  const { childId } = await f.subagents.spawn(request);
+  const mark = await f.store.getPluginState("subagents", childId, "spawn");
+  expect(mark).toMatchObject({ parent: { conversationId: f.root.id } });
+  expect(mark).not.toHaveProperty("parent.callId");
+  await f.service.whenIdle(childId);
+});
+
 it("bounds each parent's roster and depth, serializes parallel admission, and frees a slot by recursive dismissal", async () => {
   const f = await setup();
   const parent = f.root.id;
-  const admission = await Promise.all(
-    ["one", "two", "three", "four"].map(async (slug) => ({
-      slug,
-      result: await f.spawn.execute(
-        { agent: "general", name: slug, slug, task: slug },
-        f.context(parent),
-      ),
-    })),
+  const existing = [await f.create(parent, "one"), await f.create(parent, "two")];
+  const admission = await Promise.allSettled(
+    ["three", "four", "five"].map(async (slug, index) => {
+      const args = { agent: "general", name: slug, slug, task: slug };
+
+      if (index % 2 === 0) return (await f.subagents.spawn({ ...args, parent })).childId;
+      const result = await f.spawn.execute(args, f.context(parent));
+      if (result.status === "error") throw new Error(textOf(result.forModel));
+      return (await f.service.getPluginState(
+        "subagents",
+        parent,
+        `slug:${slug}`,
+      )) as ConversationId;
+    }),
   );
-  expect(admission.filter(({ result }) => result.status === "ok")).toHaveLength(3);
-  expect(admission.filter(({ result }) => result.status === "error")).toHaveLength(1);
-  const children = await Promise.all(
-    admission
-      .filter(({ result }) => result.status === "ok")
-      .map(async ({ slug }) => {
-        const id = (await f.service.getPluginState(
-          "subagents",
-          parent,
-          `slug:${slug}`,
-        )) as ConversationId;
-        await f.service.whenIdle(id);
-        return id;
-      }),
+  const admitted = admission.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
   );
+  expect(admitted).toHaveLength(1);
+  const children = [...existing, ...admitted];
+  for (const result of admission)
+    if (result.status === "rejected")
+      expect(result.reason).toHaveProperty("message", expect.stringContaining("3 active children"));
+  await Promise.all(children.map((id) => f.service.whenIdle(id)));
   const full = await f.spawn.execute(
     { agent: "general", name: "four", slug: "four", task: "four" },
     f.context(parent),
@@ -289,6 +308,50 @@ it("automatically returns each child's full final output once to its parent, not
   ]);
   expect(received.at(-1)!.turn).not.toBe(busy);
   expect(await reports(sibling)).toEqual([]);
+});
+
+it("saves the result of a first child turn stopped as soon as it is acquired", async () => {
+  const f = await setup();
+  const parent = f.root.id;
+  expect(f.service.existingService(parent, "activities")).toBeUndefined();
+  const exits: Extract<ActivityEvent, { type: "activity.exited" }>[] = [];
+  let stopped: ReturnType<HarnessService["deactivateSession"]> | undefined;
+  const unsubscribe = f.service.subscribe((event) => {
+    if (
+      isKernelEvent(event) &&
+      event.type === "turn.status" &&
+      event.status === "running" &&
+      event.conversationId !== parent
+    )
+      stopped = f.service.deactivateSession(parent, { force: true });
+    if (
+      isActivityEvent(event) &&
+      event.type === "activity.exited" &&
+      event.conversationId === parent
+    )
+      exits.push(event);
+  });
+  const child = await f.create(parent, "review");
+  await expect(stopped).resolves.toEqual({ status: "deactivated" });
+  unsubscribe();
+  const turn = await f.store.getLatestTurn(child);
+  expect(turn?.status).toBe("aborted");
+  expect(exits).toMatchObject([{ id: turn!.id, status: "error" }]);
+  const childMessages = (await f.store.listActiveItems(child)).filter(
+    (item) => item.type === "message",
+  );
+  expect(childMessages.map((message) => message.role)).toEqual(["system", "user"]);
+  const config = (await f.service.getConversation(child))!.config;
+  expect(textOf(childMessages[0]!.content)).toContain(config.instructions);
+  expect(textOf(childMessages[1]!.content)).toContain("review");
+  const notices = (await f.store.listActiveItems(parent)).filter(
+    (item) => item.type === "message" && item.role === "user",
+  );
+  expect(notices).toMatchObject([
+    { turnId: null, source: { kind: "plugin", pluginId: "subagents" } },
+  ]);
+  expect(textOf(notices[0]!.content)).toContain(exits[0]!.summary);
+  expect(await f.store.getLatestTurn(parent)).toBeUndefined();
 });
 
 it("tracks turns, not deliveries: steering joins a busy turn, queued input and reactivation each start another", async () => {

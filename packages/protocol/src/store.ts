@@ -3,6 +3,7 @@ import type { ConversationId, ItemId, TurnId } from "./ids.ts";
 import type {
   ConversationOverrides,
   ConversationRecord,
+  ChildOwnership,
   NewConversationRecord,
   Turn,
   TurnStatus,
@@ -91,10 +92,11 @@ export interface Store {
   ): Promise<ConversationRecord>;
   getConversation(id: ConversationId): Promise<ConversationRecord | undefined>;
   /**
-   * Deletes the conversation iff still empty (head === null and no turn was ever
-   * created); a no-op otherwise.
+   * Drops an empty root draft. Rolling back a newly created child instead requires
+   * its original ownership; its scoped mark and matching parent index go with it.
+   * A nonempty conversation or a different owner is a no-op.
    */
-  deleteConversationIfEmpty(id: ConversationId): Promise<void>;
+  deleteConversationIfEmpty(id: ConversationId, owner?: ChildOwnership): Promise<void>;
   /**
    * Shallow-merge `patch` into the conversation's durable `overrides` layer (the only
    * post-creation mutation of conversation settings, e.g. a `/model` switch). Re-resolved on the

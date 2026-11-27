@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
-import { zeroUsage, type Conversation, type HarnessEvent, type Item } from "@harness/protocol";
+import {
+  zeroUsage,
+  type Conversation,
+  type HarnessEvent,
+  type Item,
+  type TurnId,
+} from "@harness/protocol";
 import { testEventClient } from "./test-client-service.ts";
 import { App, appReduce, usageLabel, type AppProps } from "./app.tsx";
 import { emptyState, type Cell } from "./transcript-reducer.ts";
@@ -20,7 +26,7 @@ const toolCall = (callId: string, name: string, args: unknown): HarnessEvent => 
     type: "tool_call",
     id: `tool-call:${callId}` as Item["id"],
     conversationId: "c1" as Item["conversationId"],
-    turnId: "t1" as Item["turnId"],
+    turnId: "t1" as TurnId,
     seq: 0,
     parent: null,
     createdAt: 0,
@@ -42,7 +48,7 @@ const toolResult = (
     type: "tool_result",
     id: `tool-result:${callId}` as Item["id"],
     conversationId: "c1" as Item["conversationId"],
-    turnId: "t1" as Item["turnId"],
+    turnId: "t1" as TurnId,
     seq: 1,
     parent: null,
     createdAt: 0,
@@ -89,13 +95,13 @@ const mount = (
   );
 
 describe("App", () => {
-  it("forks a selected user message into an unsent draft", async () => {
+  it("forks a user message recorded between turns into an unsent draft", async () => {
     const { service } = harness();
     const target = {
       type: "message",
       id: "user-1",
       conversationId: "c1",
-      turnId: "t1",
+      turnId: null,
       seq: 0,
       parent: null,
       createdAt: 0,

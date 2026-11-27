@@ -130,6 +130,11 @@ it("keeps provider activity and background messages inside Working without hidin
   ]);
   transcript.update([thought, search, background, human]);
   expect(transcript.rows[1]).toMatchObject({ kind: "cell", cell: human });
+  const queued = { ...background, id: "queued", turnId: null };
+  transcript.update([thought, search, background, human, queued]);
+  const between = toolGroup(transcript.rows[2]!);
+  expect(between.steps.map(({ cell }) => cell)).toEqual([queued]);
+  expect(between.observedTiming).toBeUndefined();
 });
 
 it("places eval results after all available descendants, including nested evals", () => {

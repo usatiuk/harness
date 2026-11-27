@@ -3,7 +3,10 @@ import { HarnessRpcHost } from "@harness/service";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   conversationAttachRequest,
+  conversationDeliverRequest,
   conversationEventNotification,
+  isKernelEvent,
+  REQUEST_CANCELLED_ERROR_CODE,
   type ConversationId,
   type PluginEntry,
   type ModelProvider,
@@ -90,7 +93,107 @@ const createConversation = (client: HarnessClient) =>
     },
   });
 
+function latch() {
+  let open!: () => void;
+  const reached = new Promise<void>((resolve) => (open = resolve));
+  return { open, reached };
+}
+
 describe("HarnessRpcSession", () => {
+  it("does not admit a delivery cancelled over RPC while interrupting workspace preparation", async () => {
+    const preparing = latch(),
+      interrupted = latch(),
+      cleaned = latch();
+    let hold = false;
+    const { client, service, store } = createHarness(
+      [],
+      [
+        {
+          id: "workspace",
+          services: () => [
+            {
+              key: "execution",
+              for: () => ({
+                async prepare(signal: AbortSignal) {
+                  if (!hold) return;
+                  signal.addEventListener("abort", interrupted.open, { once: true });
+                  preparing.open();
+                  await cleaned.reached;
+                },
+              }),
+            },
+          ],
+        },
+      ],
+    );
+    await client.start();
+    const { id } = await createConversation(client);
+    await client.attach(id);
+    hold = true;
+    const preparation = service.prepare(id as ConversationId);
+    const cancel = new AbortController();
+    await preparing.reached;
+    const request = client.peer.request(
+      conversationDeliverRequest,
+      {
+        conversationId: id,
+        text: "Cancelled before admission",
+        images: [],
+        intent: "interrupt",
+      },
+      { signal: cancel.signal },
+    );
+    await interrupted.reached;
+    cancel.abort();
+    try {
+      // A round trip on this connection drains the preceding cancellation notification.
+      await client.get(id);
+    } finally {
+      cleaned.open();
+    }
+    await preparation;
+    await expect(request).rejects.toMatchObject({ code: REQUEST_CANCELLED_ERROR_CODE });
+    await service.whenIdle(id as ConversationId);
+    expect(await store.listActiveItems(id as ConversationId)).toEqual([]);
+    expect(await store.getLatestTurn(id as ConversationId)).toBeUndefined();
+  });
+
+  it("acknowledges an admitted RPC delivery even if forced close cancels its caller before response", async () => {
+    const model = new GateProvider("Working");
+    const { client, service, host } = createHarness(model);
+    await client.start();
+    const { id } = await createConversation(client);
+    await client.attach(id);
+    await client.deliver(id, "Start", "send");
+    await model.started;
+    const closing = new Promise<void>((resolve, reject) => {
+      const off = service.subscribe(id as ConversationId, (event) => {
+        if (
+          !isKernelEvent(event) ||
+          event.type !== "inbox" ||
+          !event.pending.some((input) => input.text === "Accepted")
+        )
+          return;
+        off();
+        queueMicrotask(
+          () => void host.deactivate(id as ConversationId, true).then(() => resolve(), reject),
+        );
+      });
+    });
+    await expect(client.deliver(id, "Accepted", "queue")).resolves.toBeNull();
+    await closing;
+    await client.attach(id);
+    expect(
+      (await client.history({ conversationId: id })).entries.flatMap((entry) =>
+        entry.kind === "item" &&
+        entry.item.type === "message" &&
+        entry.item.role === "user" &&
+        entry.item.content.some((block) => block.type === "text" && block.text === "Accepted")
+          ? [entry.item]
+          : [],
+      ),
+    ).toMatchObject([{ turnId: null }]);
+  });
   it("attaches closed history without starting its runtime again", async () => {
     const { client, service } = createHarness();
     await client.start();
@@ -327,6 +430,8 @@ describe("HarnessRpcSession", () => {
     await service.whenIdle(source.id as ConversationId);
     const prefix = await store.listActiveItems(source.id as ConversationId);
     const assistant = prefix.at(-1)!;
+    if (assistant.type !== "message" || assistant.role !== "assistant")
+      throw new Error("Expected the first turn's assistant response");
     const payload = {
       itemId: assistant.id,
       provider: "fake",
@@ -551,8 +656,7 @@ describe("HarnessRpcSession", () => {
     const errors = vi.fn();
     const { client, service, host } = createHarness([], [], errors);
     await client.start();
-    const deactivate = vi.spyOn(service, "deactivateSession");
-    const cancel = vi.spyOn(service, "cancelSession");
+    const stop = vi.spyOn(service, "stopSessions");
     await expect(client.attach("missing-first")).rejects.toThrow();
     await expect(client.attach("missing-second")).rejects.toThrow();
     expect(errors.mock.calls.map((call: unknown[]) => call[1])).toEqual([
@@ -560,9 +664,112 @@ describe("HarnessRpcSession", () => {
       conversationAttachRequest.method,
     ]);
     await host.shutdown();
-    expect(deactivate).not.toHaveBeenCalled();
-    expect(cancel).not.toHaveBeenCalled();
+    expect(stop.mock.calls.flatMap(([roots]) => roots)).toEqual([]);
   });
+  it("saves independently prepared roots and fences an admitted operation that has not loaded its root", async () => {
+    const model = new GateProvider("Working");
+    const { client, service, store, host } = createHarness(model);
+    await client.start();
+    const prepared = (await createConversation(client)).id as ConversationId;
+    const cold = (await createConversation(client)).id as ConversationId;
+    await service.prepareForInspection(prepared);
+    await service.deliver(prepared, "Work", "send");
+    await model.started;
+    await service.deliver(prepared, "Retain without starting a turn", "queue");
+    expect(host.beginShutdownIfIdle()).toBe(false);
+
+    const admitted = host.run(cold, async (signal) => {
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      await service.prepare(cold);
+    });
+    const interrupted = expect(admitted).rejects.toThrow(/deactivation/);
+    await host.shutdown();
+    await interrupted;
+    expect(await store.listActiveItems(prepared)).toContainEqual(
+      expect.objectContaining({
+        type: "message",
+        role: "user",
+        turnId: null,
+        content: [{ type: "text", text: "Retain without starting a turn" }],
+      }),
+    );
+    expect(service.activeRoots()).toEqual([]);
+  });
+
+  it("does not claim idle replacement while an independent first load is still in progress", async () => {
+    const { client, store, service, host } = createHarness();
+    await client.start();
+    const root = (await createConversation(client)).id as ConversationId;
+    let enter!: () => void, release!: () => void;
+    const started = new Promise<void>((resolve) => (enter = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const list = store.listPendingQuestions.bind(store);
+    vi.spyOn(store, "listPendingQuestions").mockImplementationOnce(async (id) => {
+      enter();
+      await gate;
+      return list(id);
+    });
+    const loading = service.prepare(root);
+    await started;
+    try {
+      expect(host.beginShutdownIfIdle()).toBe(false);
+    } finally {
+      release();
+    }
+    await loading;
+    expect(host.beginShutdownIfIdle()).toBe(true);
+    await host.shutdown();
+    expect(service.activeRoots()).toEqual([]);
+  });
+
+  it("joins a graceful root close already disposing resources when server shutdown starts", async () => {
+    let enter!: () => void, release!: () => void;
+    const disposing = new Promise<void>((resolve) => (enter = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const disposed: string[] = [];
+    const { client, service, host } = createHarness(
+      [],
+      [
+        {
+          id: "resource",
+          services: () => [
+            {
+              key: "resource",
+              for: (conversation) => conversation.id,
+              dispose: async (id) => {
+                if (id === a.id) {
+                  enter();
+                  await gate;
+                }
+                disposed.push(String(id));
+              },
+            },
+          ],
+        },
+      ],
+    );
+    await client.start();
+    const a = await createConversation(client),
+      b = await createConversation(client);
+    for (const { id } of [a, b]) {
+      await client.attach(id);
+      service.service(id as ConversationId, "resource");
+    }
+    const closing = client.close(a.id, false);
+    await disposing;
+    const stopping = host.shutdown();
+    try {
+      await expect(client.deliver(b.id, "too late", "send")).rejects.toThrow();
+    } finally {
+      release();
+    }
+    await expect(closing).resolves.toEqual({ status: "closed" });
+    await stopping;
+    expect(disposed.toSorted()).toEqual([a.id, b.id].toSorted());
+  });
+
   it("fails shutdown after draining every root when a real plugin disposer fails", async () => {
     const { client, service, host, session } = createHarness(
       [textStep("done")],
@@ -600,7 +807,7 @@ describe("HarnessRpcSession", () => {
     client.subscribe((event) => {
       received.push(event.type === "conversation" ? event.event.type : event.type);
     });
-    vi.spyOn(service, "deactivateSession").mockImplementationOnce(async () => {
+    vi.spyOn(service, "stopSessions").mockImplementationOnce(async () => {
       await session.server.peer.notify(conversationEventNotification, {
         rootConversationId: a.id,
         conversationId: a.id,
@@ -768,7 +975,7 @@ describe("HarnessRpcSession", () => {
       session.runAttached(conversation.id as ConversationId, async () => undefined),
     ).rejects.toThrow("not attached");
     release();
-    await expect(active).rejects.toThrow("operation cancelled");
+    await expect(active).resolves.toBeUndefined();
     await expect(closing).resolves.toEqual({ status: "closed" });
   });
 

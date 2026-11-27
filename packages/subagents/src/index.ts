@@ -1,6 +1,5 @@
 export * from "./config.ts";
-export * from "./registry.ts";
-export * from "./spawn.ts";
+export type { SpawnRequest } from "./spawn.ts";
 export * from "./tool.ts";
 export * from "./plugin.ts";
 export * from "./client-protocol.ts";

@@ -5,10 +5,10 @@ import { outputRefSchema, type ToolStatus, type OutputRef } from "./tools.ts";
 import { jsonValueSchema, type JsonValue } from "./rpc.ts";
 import { deliverySourceSchema, type DeliverySource } from "./delivery.ts";
 
-interface ItemBase {
+interface ItemBase<Turn extends TurnId | null = TurnId> {
   id: ItemId;
   conversationId: ConversationId;
-  turnId: TurnId;
+  turnId: Turn;
   seq: number; // monotonic per conversation; assigned by the store on append
   parent: ItemId | null; // prior head at append time; null for the first item
   createdAt: number; // epoch ms; assigned by the store on append
@@ -20,13 +20,16 @@ export type MessageRole = "user" | "assistant" | "system";
 export type Item =
   | (ItemBase & {
       type: "message";
+      role: "assistant";
+      phase?: string | null;
       content: ContentBlock[];
-    } & (
-        | { role: "assistant"; phase?: string | null }
-        // Absent on older history; origin does not change the model-facing role.
-        | { role: "user"; source?: DeliverySource; phase?: never }
-        | { role: "system"; phase?: never }
-      ))
+    })
+  // Between-turn input and the base instructions that open its window have no generating turn.
+  | (ItemBase<TurnId | null> & {
+      type: "message";
+      phase?: never;
+      content: ContentBlock[];
+    } & ({ role: "user"; source?: DeliverySource } | { role: "system" }))
   | (ItemBase & { type: "reasoning"; content: ContentBlock[] })
   // Durable display hint only; omitted from every model request and summary.
   | (ItemBase & { type: "provider_output"; content: ContentBlock[] })
@@ -86,12 +89,14 @@ export const itemSchema = z.discriminatedUnion("type", [
     z.object({
       ...messageShape,
       role: z.literal("user"),
+      turnId: z.string().nullable(),
       source: deliverySourceSchema.optional(),
       phase: z.never().optional(),
     }),
     z.object({
       ...messageShape,
       role: z.literal("system"),
+      turnId: z.string().nullable(),
       phase: z.never().optional(),
     }),
   ]),

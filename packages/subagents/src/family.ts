@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ConversationId, ConversationRunner } from "@harness/protocol";
 
 const spawnSchema = z.object({
-  parent: z.object({ conversationId: z.string(), callId: z.string() }),
+  parent: z.object({ conversationId: z.string(), callId: z.string().optional() }),
   agent: z.string(),
   name: z.string().optional(),
   slug: z.string().optional(),

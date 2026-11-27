@@ -1,8 +1,9 @@
-import type { ConversationOverrides, Conversation } from "./conversation.ts";
+import type { ConversationOverrides, Conversation, ConversationParent } from "./conversation.ts";
 import type { ConversationId, TurnId } from "./ids.ts";
 import type { DeliveryInput, DeliveryIntent } from "./delivery.ts";
 import type { Store } from "./store.ts";
 import type { HarnessEvent } from "./events.ts";
+import type { ConversationScope } from "./tools.ts";
 
 /**
  * The conversation-control subset a plugin needs to spawn and observe child conversations — a
@@ -10,18 +11,20 @@ import type { HarnessEvent } from "./events.ts";
  * they never rewind or reconfigure a child.
  */
 export interface ConversationRunner extends Pick<Store, "listConversationPage" | "getLatestTurn"> {
+  /** Look up the current activation. Its callbacks retain that activation and the given plugin attribution. */
+  scope(id: ConversationId, pluginId: string): Promise<ConversationScope>;
   closeThread(id: ConversationId): Promise<void>;
   /** Abort only this run, without loading or closing the conversation. */
   interruptTurn(id: ConversationId, expectedTurnId: TurnId): void;
   prepare(id: ConversationId): Promise<void>;
   registerChild(parent: ConversationId, child: ConversationId): void;
   isConversationRunning(id: ConversationId): boolean;
-  createConversation(opts: {
-    cwd?: string;
-    overrides?: ConversationOverrides;
-    /** Internal tree ownership for a child spawned by this conversation. */
-    parentId?: ConversationId;
-  }): Promise<Conversation>;
+  createConversation(
+    opts: ConversationParent & {
+      cwd?: string;
+      overrides?: ConversationOverrides;
+    },
+  ): Promise<Conversation>;
   /** Resolves on admission, not turn completion. Aborting after admission does not retract input. */
   deliver(
     id: ConversationId,

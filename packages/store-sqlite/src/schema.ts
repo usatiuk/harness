@@ -45,7 +45,7 @@ interface ItemsTable {
   id: string;
   conversation_id: string;
   seq: number;
-  turn_id: string;
+  turn_id: string | null;
   parent: string | null;
   type: string;
   call_id: string | null;
@@ -127,6 +127,9 @@ const QUESTIONS_SCHEMA = `CREATE TABLE questions (
 );
 CREATE INDEX questions_pending ON questions(conversation_id) WHERE pending = 1;
 `;
+const ITEM_TURN_CONSTRAINT = `CONSTRAINT items_turn_owner CHECK (
+  turn_id IS NOT NULL OR (type = 'message' AND (json_extract(body, '$.role') IN ('system','user')) IS TRUE)
+)`;
 const SCHEMA = `
 ${WORKTREE_SCHEMA}
 CREATE TABLE conversations (
@@ -156,12 +159,13 @@ CREATE TABLE items (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversations(id),
   seq INTEGER NOT NULL,
-  turn_id TEXT NOT NULL REFERENCES turns(id),
+  turn_id TEXT REFERENCES turns(id),
   parent TEXT REFERENCES items(id),
   type TEXT NOT NULL,
   call_id TEXT,
   created_at INTEGER NOT NULL,
-  body TEXT NOT NULL
+  body TEXT NOT NULL,
+  ${ITEM_TURN_CONSTRAINT}
 );
 CREATE UNIQUE INDEX items_conv_seq ON items(conversation_id, seq);
 CREATE UNIQUE INDEX items_tool_result_call
@@ -224,7 +228,7 @@ CREATE INDEX model_usage_turn ON model_usage(turn_id);
 CREATE INDEX turns_terminal ON turns(conversation_id, created_at DESC) WHERE status <> 'running';
 `;
 
-export const STORE_SCHEMA_VERSION = 17;
+export const STORE_SCHEMA_VERSION = 18;
 
 /** Fresh schema or supported additive upgrades; older formats remain unsupported. */
 export function initializeSchema(db: BetterSqlite3.Database): void {
@@ -374,6 +378,12 @@ export function initializeSchema(db: BetterSqlite3.Database): void {
           WHERE plugin = 'subagents' AND key = 'dismissed' AND value = 'true'
           UNION SELECT c.id FROM conversations c JOIN dismissed d ON c.thread_parent = d.id
         ) UPDATE conversations SET closed = 1 WHERE id IN dismissed`);
+      version = 17;
+    }
+    if (version === 17) {
+      // Between-turn messages have no generating turn. Keep item IDs, links, and foreign keys.
+      db.exec(`ALTER TABLE items ALTER COLUMN turn_id DROP NOT NULL;
+        ALTER TABLE items ADD ${ITEM_TURN_CONSTRAINT};`);
       db.pragma(`user_version = ${STORE_SCHEMA_VERSION}`);
       return;
     }

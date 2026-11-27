@@ -5,6 +5,19 @@ current change. Keep entries concrete: state the limitation, consequence, reason
 for deferral, and the condition that should reopen it. Package-local follow-up may
 instead live in the owning execution plan or an issue.
 
+## Restore a child's recorded parent on direct attachment
+
+After a server restart, attaching to a child before its parent can treat the
+child as a runtime root. This was reproduced with a child created via
+`createConversation({ parentId })` without a subagent spawn mark: the stored
+parent was correct, but RPC attachment used subagent metadata to find the root.
+No stored parent changed.
+
+- [ ] Restore attachment ancestry from the conversation records’ `parentId`
+      links. Verify with a fresh service over the same store: attach the child
+      first and assert the attached root is the original parent. Preserve
+      subagent inspection and read-only rules; no reparenting API is needed.
+
 ## Workspace output directory races
 
 The host-side output store rejects existing links below the selected workspace

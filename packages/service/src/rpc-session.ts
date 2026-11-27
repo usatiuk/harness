@@ -321,25 +321,34 @@ export class HarnessRpcSession {
       });
     });
 
-    this.onRequest(conversationDeliverRequest, async ({ conversationId, text, intent, images }) => {
-      const id = conversationId as ConversationId;
-      return this.runWritable(id, async () => {
-        try {
-          await this.#service.deliver(
-            id,
-            {
-              source: { kind: "user" },
-              content: [...(text ? [{ type: "text" as const, text }] : []), ...images],
-            },
-            intent,
-          );
-        } catch (error) {
-          if (error instanceof ContentInputError) throw new ResponseError(-32602, error.message);
-          throw error;
-        }
-        return null;
-      });
-    });
+    this.onRequest(
+      conversationDeliverRequest,
+      async ({ conversationId, text, intent, images }, signal) => {
+        const id = conversationId as ConversationId;
+        return this.runWritable(
+          id,
+          async (operationSignal) => {
+            try {
+              await this.#service.deliver(
+                id,
+                {
+                  source: { kind: "user" },
+                  content: [...(text ? [{ type: "text" as const, text }] : []), ...images],
+                },
+                intent,
+                operationSignal,
+              );
+            } catch (error) {
+              if (error instanceof ContentInputError)
+                throw new ResponseError(-32602, error.message);
+              throw error;
+            }
+            return null;
+          },
+          signal,
+        );
+      },
+    );
 
     this.onRequest(conversationRewindRequest, async ({ conversationId, itemId }) => {
       const id = conversationId as ConversationId;
@@ -457,23 +466,23 @@ export class HarnessRpcSession {
       const result = await this.host.run(
         rootId,
         async (signal) => {
-          const rootHistory = await this.#service.prepareForInspection(rootId);
-          if (ancestry.length > 1) {
+          const histories = [await this.#service.prepareForInspection(rootId)];
+          // Prepare activity owners before their children can start restored turns.
+          // Closed ancestors contribute history only, never a revived runtime.
+          let parent = rootId;
+          for (const member of ancestry) {
+            if (member === rootId) continue;
             signal.throwIfAborted();
-            for (let index = 1; index < ancestry.length; index++)
-              this.#service.registerChild(ancestry[index - 1]!, ancestry[index]!);
+            this.#service.registerChild(parent, member);
+            histories.push(await this.#service.prepareForInspection(member));
+            parent = member;
           }
-          const memberHistory =
-            conversationId === rootId
-              ? undefined
-              : await this.#service.prepareForInspection(conversationId);
-          return this.#buildAttachment(conversationId, rootId, signal, [
-            rootHistory,
-            memberHistory,
-          ]);
+          return this.#buildAttachment(conversationId, rootId, signal, histories);
         },
         requestSignal,
       );
+      // Until attach returns, a cancelled observer registration can still be rolled back.
+      requestSignal?.throwIfAborted();
       if (this.#shutdown !== undefined || this.host.isClosing(rootId)) {
         throw new Error("connection closed during attachment");
       }
