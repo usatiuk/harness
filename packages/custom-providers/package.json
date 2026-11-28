@@ -22,7 +22,7 @@
     "@harness/anthropic-core": "*",
     "@harness/anthropic-api": "*",
     "@harness/auth": "*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@harness/service": "*",

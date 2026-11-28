@@ -20,7 +20,7 @@
     "@harness/config": "*",
     "@harness/protocol": "*",
     "@harness/execution": "*",
-    "zod": "^4.4.3",
+    "zod": "^4.6.7",
     "@harness/worktrees": "*",
     "@microsoft/mxc-sdk": "1.1.0"
   },
