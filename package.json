@@ -11,7 +11,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "tsx --conditions=development packages/cli/src/bin.ts",
+    "dev": "tsx --tsconfig packages/cli/tsconfig.json --conditions=development packages/cli/src/bin.ts",
     "release:payloads": "node scripts/build-payloads.mjs --release",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/cli/tsconfig.json && tsc --noEmit -p packages/desktop/tsconfig.json",
     "desktop:dev": "npm run desktop:dev --workspace @harness/desktop",

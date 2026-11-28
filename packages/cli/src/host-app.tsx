@@ -116,9 +116,6 @@ export function HostApp({ hosts, options = {} }: { hosts: TuiHosts; options?: La
   };
   return (
     <Box flexDirection="column">
-      <Text
-        bold
-      >{`Host: ${view?.host.label ?? "Local"} · Ctrl+G / /hosts: agent command center`}</Text>
       {managing ? (
         <CommandCenter
           hosts={hosts}

@@ -207,10 +207,11 @@ it("renders Local-first command center and saves an alias-only SSH route", async
   expect(hosts.config?.hosts.map((host) => host.kind)).toEqual(["local"]);
   const ui = render(<HostApp hosts={hosts} />);
   try {
-    await vi.waitFor(() => expect(ui.lastFrame()).toContain("/hosts"), { timeout: 20000 });
     await vi.waitFor(() => expect(hosts.selected?.presentation.activeId).toBeDefined(), {
       timeout: 20000,
     });
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain("/help"));
+    expect(ui.lastFrame()).not.toContain("/hosts");
     await writeInput(ui, "\u0007");
     await vi.waitFor(() => expect(ui.lastFrame()).toContain("Add SSH"));
     // The Select menu's fourth entry is Add SSH.
