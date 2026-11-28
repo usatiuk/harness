@@ -4,6 +4,7 @@ import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ConversationId, NewItem, TurnId } from "@harness/protocol";
+import { modelHistoryItem } from "@harness/protocol";
 import { counterIdGenerator, fixedClock, newConversationInput } from "@harness/testkit";
 import { storeContract } from "@harness/testkit/contract";
 import { STORE_SCHEMA_VERSION } from "./schema.ts";
@@ -55,6 +56,39 @@ describe("SqliteStore (durable-only)", () => {
   };
   afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reopens grouped history but rehydrates model selections without its store metadata", async () => {
+    const path = tempDb();
+    const before = new SqliteStore(path);
+    const conversation = await before.createConversation(record());
+    const { id: turnId } = await before.createTurn(conversation.id);
+    const common = { conversationId: conversation.id, turnId };
+    const [notice, checkpoint] = await before.appendItems([
+      [
+        { ...common, type: "context", key: "notice", content: [{ type: "text", text: "updated" }] },
+        { ...common, type: "plugin_data", plugin: "example", data: { recorded: true } },
+      ],
+    ]);
+    const selection = modelHistoryItem(notice!)!;
+    expect(selection).not.toHaveProperty("group");
+    const build = await before.recordContextBuild({
+      conversationId: conversation.id,
+      tools: [],
+      items: [{ fromLog: true, item: selection }],
+    });
+    before.close();
+    const reopened = new SqliteStore(path);
+    try {
+      expect(await reopened.getItem(notice!.id)).toMatchObject({
+        group: { first: notice!.id, last: checkpoint!.id },
+      });
+      expect(await reopened.setHead(conversation.id, notice!.id)).toBe(checkpoint!.id);
+      expect(await reopened.listActiveItems(conversation.id)).toEqual([notice, checkpoint]);
+      expect(await reopened.getContextBuild(build.id)).toEqual(build);
+    } finally {
+      reopened.close();
+    }
   });
 
   it("preserves turn ownership and item ancestry across the v17 between-turn message upgrade", async () => {

@@ -153,3 +153,22 @@ it("isolates server homes and appends a changed global file once across reload",
   expect(instructions).not.toContain("PERSONAL GLOBAL RULES");
   expect(instructions).not.toContain("UPDATED GLOBAL RULES");
 });
+
+it("keeps the digest when rewinding to an instruction notice, without hiding later edits", async () => {
+  const { home } = await fixture();
+  const { service, requests, createRoot } = runtime(home);
+  const conversation = await createRoot();
+  const send = async () => {
+    await service.send(conversation.id, "read the instructions");
+    await service.whenIdle(conversation.id);
+    return requests.at(-1)!;
+  };
+  const first = await send();
+  const notice = first.items.find(
+    ({ item }) => item.type === "context" && textOf(item.content).includes("PERSONAL GLOBAL RULES"),
+  )!.item;
+  await service.rewind(conversation.id, notice.id!);
+  expect(textOf(requestGuidance(await send())).match(/PERSONAL GLOBAL RULES/gu)).toHaveLength(1);
+  await writeFile(join(home, "AGENTS.md"), "REVISED GLOBAL RULES");
+  expect(textOf(requestGuidance(await send())).match(/REVISED GLOBAL RULES/gu)).toHaveLength(1);
+});

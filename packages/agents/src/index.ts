@@ -134,6 +134,7 @@ export function createAgentsPlugin(home: string): Plugin {
     id: "agents",
     services: () => [service],
     async contextItems(ctx, boundary) {
+      if (boundary.type === "agentRequest") return [];
       const targets =
         boundary.type === "tools"
           ? boundary.calls
@@ -163,10 +164,12 @@ export function createAgentsPlugin(home: string): Plugin {
       }
       const output: PluginContextItem[] = [];
       const notice = (path: string, digest: string | null, text: string) => {
-        output.push(
-          { type: "context", key: canonicalKey(path), content: [{ type: "text", text }] },
-          { type: "plugin_data", data: { path, digest } },
-        );
+        output.push({
+          type: "context",
+          key: canonicalKey(path),
+          content: [{ type: "text", text }],
+          data: { path, digest },
+        });
       };
       const checked = new Set<string>();
       for (const directory of directories) {

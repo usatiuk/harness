@@ -4,6 +4,33 @@
 
 The active branch supplies one ordered list of model input. Its opening items contain the base system prompt, workspace, and initial project instructions. Subsequent turns append items to that window.
 
+The built-in `context-notices` plugin adds the configured provider/model and
+server-local date, minute, and UTC offset to the opening system message of a
+fresh window. Later logical agent requests append only changes. After ten
+minutes the clock notice contains just the time and offset; a local date or
+offset change immediately includes the date again. A model change does not
+reset the clock. This uses the model for the request, not an auxiliary model.
+
+Plugins use `systemContext` for content inside the opening system message and
+`contextItems` for separate notices. A logical agent request is one of the
+`contextItems` boundaries, alongside window, turn, workspace, and tool events.
+
+If the estimated input reaches 90% of the **effective compaction threshold**,
+the plugin contributes one `Compaction soon` context item per window. This is
+not the percentage of the raw model window. No warning is added when the
+threshold is unknown or already due. There is no extra model call, UI banner,
+timer, or change to the compaction policy. Ordinary context inspection can
+show the notice.
+
+The plugin reads its hidden record from the active window. A notice and its
+record are distinct history items in an explicit [history group](../persistence/README.md#durable-model).
+Forks and rewinds
+therefore inherit what the model was actually told on that branch, compaction
+starts a fresh snapshot, and transport retries replay the built request.
+Any window without a record receives a snapshot on its next agent request rather
+than rewriting its opening message. This includes pre-upgrade windows and a chat
+whose base prompt and queued input were saved before its first turn.
+
 ## Context assembly
 
 1. Select the active lineage from the latest compaction's `windowStart`, or from the root.
@@ -135,6 +162,7 @@ reasoning-only output is not a summary. No extra logger or retry is introduced.
 - `packages/core/src/engine.ts`, `policies.ts`: assembly, capacity, folds, and
   model compaction.
 - `packages/agents`: hierarchical project instruction source/middleware.
+- `packages/context-notices`: server-local clock, active model and threshold heads-up policy.
 - `packages/protocol/src/items.ts`, `policies.ts`: canonical context and
   compaction contracts.
 - `packages/store*`: durable context builds, folds, payloads, and active lineage.

@@ -9,6 +9,7 @@ import {
   worktreesConfigSchema,
 } from "@harness/worktrees";
 import { conversationTitlesPlugin } from "@harness/conversation-titles";
+import { contextNoticesPlugin } from "@harness/context-notices";
 import { modelRetryPlugin } from "@harness/model-retry";
 import { McpRuntime, MCP_CLIENT_CONTRACT_VERSION } from "@harness/mcp";
 import { registerMcpApi } from "./mcp.ts";
@@ -166,6 +167,7 @@ export async function buildServerComposition(
       ...providerPlugins,
       built.plugin,
       conversationTitlesPlugin,
+      contextNoticesPlugin,
       modelRetryPlugin,
     ];
     plugins.push(

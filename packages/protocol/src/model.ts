@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ContentBlock } from "./content.ts";
 import type { ConversationId, ItemId } from "./ids.ts";
-import type { Item } from "./items.ts";
+import { withoutHistoryGroup, type DistributiveOmit, type Item } from "./items.ts";
 import type { JsonValue } from "./rpc.ts";
 
 export interface ModelIdentity {
@@ -214,10 +214,14 @@ export interface InlineMessage {
   source?: never;
 }
 
-export type ModelHistoryItem = Exclude<Item, { type: "plugin_data" | "provider_output" }>;
+export type ModelHistoryItem = DistributiveOmit<
+  Exclude<Item, { type: "plugin_data" | "provider_output" }>,
+  "group"
+>;
 
 /** Canonical projection used for requests and rehydrating their recorded selections. */
-export function modelHistoryItem(item: Item): ModelHistoryItem | undefined {
+export function modelHistoryItem(canonical: Item): ModelHistoryItem | undefined {
+  const item = withoutHistoryGroup(canonical);
   if (item.type === "provider_output" || item.type === "plugin_data") return;
   if ((item.type === "tool_call" || item.type === "tool_result") && item.parentCallId) return;
   if (item.type !== "tool_result") return item;
@@ -234,7 +238,7 @@ export type ContextItem = (
   | { fromLog?: never; item: ModelHistoryItem | InlineMessage }
 ) & { payload?: ProviderPayload };
 
-export function openingSystem(items: ContextItem[]) {
+export function getSystemMessage(items: ContextItem[]) {
   const item = items[0]?.item;
   return item?.type === "message" && item.role === "system" ? item : undefined;
 }

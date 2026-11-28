@@ -21,6 +21,7 @@ import type {
   IdGenerator,
   ChildOwnership,
   Item,
+  ItemAppend,
   ItemId,
   ModelUsage,
   ModelUsageSummary,
@@ -39,6 +40,7 @@ import type {
 } from "@harness/protocol";
 import { summarizeUsageRows, summarizeTurnUsage } from "@harness/protocol";
 import { systemClock, uuidIdGenerator } from "./defaults.ts";
+import { prepareItemBatch } from "./append.ts";
 
 const pluginStateKey = (plugin: string, conversationId: ConversationId, key: string): string =>
   `${plugin} ${conversationId} ${key}`;
@@ -195,7 +197,7 @@ export class InMemoryStore implements Store {
         ? { originalWorkspaceRoot: source.originalWorkspaceRoot }
         : {}),
       overrides,
-      head: user.parent,
+      head: user.group ? this.#byId.get(user.group.first)!.parent : user.parent,
       title: source.title,
       createdAt,
       lastUsedAt: createdAt,
@@ -366,29 +368,27 @@ export class InMemoryStore implements Store {
   #appendItem(input: NewItem): Item {
     return this.#appendBatch([input])[0]!;
   }
-  async appendItems(inputs: NewItem[]): Promise<Item[]> {
+  async appendItems(inputs: readonly ItemAppend[]): Promise<Item[]> {
     return this.#appendBatch(inputs);
   }
-  #appendBatch(inputs: NewItem[]): Item[] {
-    if (!inputs.length) return [];
-    const conversationId = inputs[0]!.conversationId;
+  #appendBatch(inputs: readonly ItemAppend[]): Item[] {
+    const batch = prepareItemBatch(inputs, this.ids);
+    if (!batch.length) return [];
+    const conversationId = batch[0]!.conversationId;
     const conversation = this.#conversations.get(conversationId);
     const log = this.#items.get(conversationId);
     if (!conversation || !log) throw new Error(`unknown conversation: ${conversationId}`);
     let parent = conversation.head;
     let seq = Math.max(log.at(-1)?.seq ?? -1, parent ? this.#byId.get(parent)!.seq : -1);
     const items: Item[] = [];
-    for (const input of inputs) {
-      if (input.conversationId !== conversationId) throw new Error("mixed conversation batch");
-      const id = this.ids.itemId();
+    for (const input of batch) {
       items.push({
-        ...(input.type === "compaction" ? { ...input, windowStart: items[0]?.id ?? id } : input),
-        id,
+        ...input,
         seq: ++seq,
         parent,
         createdAt: this.clock.now(),
       });
-      parent = id;
+      parent = input.id;
     }
     for (const item of items) {
       log.push(item);
@@ -405,15 +405,18 @@ export class InMemoryStore implements Store {
     return log.filter((i) => i.seq >= from && i.seq <= to);
   }
 
-  async setHead(conversationId: ConversationId, itemId: ItemId): Promise<void> {
+  async setHead(conversationId: ConversationId, itemId: ItemId): Promise<ItemId> {
     const conversation = this.#conversations.get(conversationId);
     if (!conversation) {
       throw new Error(`unknown conversation: ${conversationId}`);
     }
-    if (!this.#byId.has(itemId)) {
+    const item = this.#byId.get(itemId);
+    if (!item) {
       throw new Error(`unknown item: ${itemId}`);
     }
-    this.#conversations.set(conversationId, { ...conversation, head: itemId });
+    const head = item.group?.last ?? item.id;
+    this.#conversations.set(conversationId, { ...conversation, head });
+    return head;
   }
 
   async listActiveItems(conversationId: ConversationId): Promise<Item[]> {

@@ -7,6 +7,8 @@ import { deliverySourceSchema, type DeliverySource } from "./delivery.ts";
 
 interface ItemBase<Turn extends TurnId | null = TurnId> {
   id: ItemId;
+  /** Store-owned inclusive endpoints of an indivisible history group. */
+  group?: { first: ItemId; last: ItemId };
   conversationId: ConversationId;
   turnId: Turn;
   seq: number; // monotonic per conversation; assigned by the store on append
@@ -58,12 +60,27 @@ export type Item =
   // Model-visible context, appended at the boundary where it was discovered.
   | (ItemBase & { type: "context"; content: ContentBlock[]; key: string });
 
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /** Input to append: the store assigns `id`, `seq`, `parent`, and `createdAt`. */
-export type NewItem = DistributiveOmit<Item, "id" | "seq" | "parent" | "createdAt" | "windowStart">;
+export type NewItem = DistributiveOmit<
+  Item,
+  "id" | "seq" | "parent" | "createdAt" | "windowStart" | "group"
+> & { group?: never };
+
+/** A bare input is independent; a nested array explicitly groups its members. */
+export type ItemAppend = NewItem | readonly NewItem[];
+
+/** Group boundaries belong to history manipulation, not prompts or public item payloads. */
+export function withoutHistoryGroup(item: Item): DistributiveOmit<Item, "group"> {
+  if (!item.group) return item;
+  const visible = { ...item };
+  delete visible.group;
+  return visible;
+}
 
 const baseShape = {
+  group: z.object({ first: z.string(), last: z.string() }).optional(),
   id: z.string(),
   conversationId: z.string(),
   turnId: z.string(),

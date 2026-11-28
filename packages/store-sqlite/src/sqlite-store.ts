@@ -28,6 +28,7 @@ import type {
   IdGenerator,
   ChildOwnership,
   Item,
+  ItemAppend,
   ItemId,
   ModelUsage,
   ModelUsageSummary,
@@ -51,7 +52,7 @@ import {
   summarizeTurnUsage,
   jsonValueSchema,
 } from "@harness/protocol";
-import { systemClock, uuidIdGenerator } from "@harness/store";
+import { prepareItemBatch, systemClock, uuidIdGenerator, type PreparedItem } from "@harness/store";
 import { initializeSchema, type Database } from "./schema.ts";
 
 type ItemRow = Database["items"];
@@ -72,7 +73,7 @@ const isUniqueViolation = (e: unknown): boolean =>
 export class SqliteStore implements Store {
   readonly #db: BetterSqlite3.Database;
   readonly #k: Kysely<Database>;
-  readonly #appendTxn: (p: AppendParams) => { seq: number; parent: string | null };
+  readonly #appendTxn: (p: AppendParams) => { seq: number; parent: ItemId | null };
   readonly #updateOverridesTxn: (id: string, patch: ConversationOverrides) => void;
 
   constructor(
@@ -179,7 +180,7 @@ export class SqliteStore implements Store {
           .get(id, input.conversationId) as { delivery_pending: number } | undefined;
         if (!row) throw new Error("Unknown question request");
         if (!row.delivery_pending) return undefined;
-        const item = this.#appendItem(input);
+        const item = this.#appendItem(prepareItemBatch([input], this.ids)[0]!);
         this.#db
           .prepare("UPDATE questions SET pending = 0, delivery_pending = 0 WHERE id = ?")
           .run(id);
@@ -304,7 +305,13 @@ export class SqliteStore implements Store {
             ? { originalWorkspaceRoot: source.original_workspace_root }
             : {}),
           overrides,
-          head: user.parent,
+          head: user.group
+            ? this.#db
+                .prepare<[string], { parent: ItemId | null }>(
+                  "SELECT parent FROM items WHERE id = ?",
+                )
+                .get(user.group.first)!.parent
+            : user.parent,
           title: source.title,
           createdAt,
           lastUsedAt: createdAt,
@@ -519,24 +526,14 @@ export class SqliteStore implements Store {
   // Atomic read-then-write of seq/parent + head. Native IMMEDIATE txn (Kysely only issues
   // deferred BEGIN); the upfront write lock stops a second writer racing the head read.
   async appendItem(input: NewItem): Promise<Item> {
-    return this.#appendItem(input);
+    return this.#appendItem(prepareItemBatch([input], this.ids)[0]!);
   }
-  async appendItems(inputs: NewItem[]): Promise<Item[]> {
-    return this.#db
-      .transaction(() => {
-        const items: Item[] = [];
-        for (const input of inputs) {
-          if (input.conversationId !== inputs[0]!.conversationId)
-            throw new Error("mixed conversation batch");
-          items.push(this.#appendItem(input, items[0]?.id));
-        }
-        return items;
-      })
-      .immediate();
+  async appendItems(inputs: readonly ItemAppend[]): Promise<Item[]> {
+    const batch = prepareItemBatch(inputs, this.ids);
+    return this.#db.transaction(() => batch.map((item) => this.#appendItem(item))).immediate();
   }
-  #appendItem(input: NewItem, first?: ItemId): Item {
-    const { conversationId, turnId, type, ...variant } = input;
-    const id = this.ids.itemId();
+  #appendItem(input: PreparedItem): Item {
+    const { id, conversationId, turnId, type, ...variant } = input;
     const createdAt = this.clock.now();
     const { seq, parent } = this.#appendTxn({
       id,
@@ -545,18 +542,14 @@ export class SqliteStore implements Store {
       type,
       callId: "callId" in input ? input.callId : null,
       createdAt,
-      body: JSON.stringify(
-        type === "compaction" ? { ...variant, windowStart: first ?? id } : variant,
-      ),
+      body: JSON.stringify(variant),
     });
     return {
       ...input,
-      ...(type === "compaction" ? { windowStart: first ?? id } : {}),
-      id,
       seq,
       parent,
       createdAt,
-    } as Item;
+    };
   }
 
   async listOwnedItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]> {
@@ -570,16 +563,15 @@ export class SqliteStore implements Store {
     return (await q.execute()).map(rowToItem);
   }
 
-  async setHead(conversationId: ConversationId, itemId: ItemId): Promise<void> {
-    const res = await this.#k
-      .updateTable("conversations")
-      .set({ head: itemId })
-      .where("id", "=", conversationId)
-      .where(sql<boolean>`EXISTS (SELECT 1 FROM items WHERE id = ${itemId})`)
-      .executeTakeFirst();
-    if (res.numUpdatedRows === 0n) {
-      throw new Error(`unknown conversation or item: ${conversationId}/${itemId}`);
-    }
+  async setHead(conversationId: ConversationId, itemId: ItemId): Promise<ItemId> {
+    const row = this.#db
+      .prepare<[ItemId, ConversationId], { head: ItemId }>(
+        `UPDATE conversations SET head = COALESCE(json_extract(i.body, '$.group.last'), i.id)
+         FROM items i WHERE i.id = ? AND conversations.id = ? RETURNING head`,
+      )
+      .get(itemId, conversationId);
+    if (!row) throw new Error(`unknown conversation or item: ${conversationId}/${itemId}`);
+    return row.head;
   }
 
   async listActiveItems(conversationId: ConversationId): Promise<Item[]> {
@@ -913,8 +905,8 @@ export class SqliteStore implements Store {
     return Uint8Array.from(data);
   }
 
-  #buildAppendTxn(): (p: AppendParams) => { seq: number; parent: string | null } {
-    const head = this.#db.prepare<[string], { head: string | null; parent_seq: number }>(
+  #buildAppendTxn(): (p: AppendParams) => { seq: number; parent: ItemId | null } {
+    const head = this.#db.prepare<[string], { head: ItemId | null; parent_seq: number }>(
       "SELECT c.head, COALESCE(i.seq, -1) AS parent_seq FROM conversations c LEFT JOIN items i ON i.id = c.head WHERE c.id = ?",
     );
     const maxSeq = this.#db.prepare<[string], { m: number | null }>(

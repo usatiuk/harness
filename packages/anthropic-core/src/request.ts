@@ -1,4 +1,4 @@
-import { openingSystem } from "@harness/protocol";
+import { getSystemMessage } from "@harness/protocol";
 import { toolCallKey } from "@harness/protocol";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
@@ -104,7 +104,7 @@ function toMessages(request: ModelRequest, provider: string): MessageParam[] {
     user = [];
   };
 
-  const opening = openingSystem(request.items);
+  const opening = getSystemMessage(request.items);
   for (const { item, payload } of request.items) {
     if (item === opening) continue;
     const native = readBlockPayload(payload, provider, model);
@@ -240,7 +240,7 @@ export function buildMessages(
 
   // System and tools form the static, cache-stable prefix; one breakpoint on the last system
   // block caches both (tools render before system in Anthropic's cache hierarchy).
-  const instructions = textOf(openingSystem(request.items)?.content ?? []);
+  const instructions = textOf(getSystemMessage(request.items)?.content ?? []);
   const system: Anthropic.Messages.TextBlockParam[] | undefined = instructions
     ? [{ type: "text", text: instructions, cache_control: EPHEMERAL }]
     : undefined;

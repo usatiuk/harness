@@ -136,6 +136,50 @@ export function storeContract(name: string, makeStore: () => Store): void {
       expect((await store.summarizeModelUsage(fork.id)).usage.inputTokens).toBe(0);
     });
 
+    it("rejects caller-supplied group endpoints without publishing a partial batch", async () => {
+      const store = makeStore();
+      const source = await store.createConversation(sampleRecord());
+      const turn = await store.createTurn(source.id);
+      const input = message(source.id, turn.id, "entry");
+      const existing = await store.appendItem(input);
+      await expect(
+        store.appendItems([
+          [input, input],
+          // @ts-expect-error The store also rejects forged IDs from untyped callers.
+          { ...input, group: { first: existing.id, last: existing.id } },
+        ]),
+      ).rejects.toThrow("store-owned");
+      expect(await store.listOwnedItems(source.id)).toEqual([existing]);
+      expect((await store.getConversation(source.id))?.head).toBe(existing.id);
+    });
+
+    it("keeps explicit groups intact across rewind, continuation, and fork-before", async () => {
+      const store = makeStore();
+      const source = await store.createConversation(sampleRecord());
+      const turn = await store.createTurn(source.id);
+      const input = (text: string) => message(source.id, turn.id, text);
+      const batch = await store.appendItems([
+        input("independent"),
+        [input("first"), input("middle"), input("last")],
+        { type: "compaction", conversationId: source.id, turnId: turn.id, content: [] },
+        [input("new group"), input("end")],
+      ]);
+      const [prefix, first, middle, last, fold, next, end] = batch;
+      expect(prefix).not.toHaveProperty("group");
+      expect(fold).not.toHaveProperty("group");
+      expect(fold).toMatchObject({ windowStart: prefix!.id });
+      expect(next!.group).toEqual({ first: next!.id, last: end!.id });
+      for (const member of [first!, middle!, last!]) {
+        expect(member.group).toEqual({ first: first!.id, last: last!.id });
+        expect(await store.setHead(source.id, member.id)).toBe(last!.id);
+        const branch = await store.appendItem(input("continued"));
+        expect(branch.parent).toBe(last!.id);
+        expect(await store.listActiveItems(source.id)).toEqual([...batch.slice(0, 4), branch]);
+        const fork = await store.forkConversation(source.id, member.id, {});
+        expect(await store.listActiveItems(fork.id)).toEqual([prefix]);
+      }
+    });
+
     it("fork validates the user target without checking its owner and does not create invalid forks", async () => {
       const store = makeStore();
       const source = await store.createConversation(sampleRecord());

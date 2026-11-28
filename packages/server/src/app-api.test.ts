@@ -135,6 +135,68 @@ it("offers all Harness capability tools upfront in both modes", async () => {
   }
 });
 
+it("opens with runtime facts and refreshes the clock after a tool without repeating the tool", async () => {
+  const { DemoProvider } = await import("./demo-provider.ts");
+  const { textStep, toolStep } = await import("@harness/testkit");
+  const { getSystemMessage, textOf } = await import("@harness/protocol");
+  const home = await mkdtemp(join(tmpdir(), "harness-runtime-facts-"));
+  vi.stubEnv("HARNESS_HOME", home);
+  const start = new Date(2026, 0, 15, 12, 34);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(start);
+  const demo = new DemoProvider();
+  const continueWithDemo = demo.stream.bind(demo);
+  const agentCalls: import("@harness/protocol").ModelRequest[] = [];
+  const stream = vi
+    .spyOn(DemoProvider.prototype, "stream")
+    .mockImplementation(async function* (request, signal) {
+      if (!request.tools?.some((tool) => tool.name === "eval")) {
+        yield* textStep("title");
+        return;
+      }
+      agentCalls.push(request);
+      if (agentCalls.length === 1) {
+        vi.setSystemTime(start.getTime() + 10 * 60_000);
+        yield* toolStep("inspect", "activity_list", {});
+      } else if (agentCalls.length === 2) {
+        yield* continueWithDemo(request, signal);
+      } else {
+        yield* textStep("unexpected extra request");
+      }
+    });
+  const pair = createInProcessMessageConnectionPair();
+  const harness = await buildServerHarness(pair.right);
+  try {
+    const conversation = await harness.service.createConversation({
+      overrides: { model: { provider: "demo", model: "demo-1" } },
+    });
+    await harness.service.send(conversation.id, "Check my activities");
+    await harness.service.whenIdle(conversation.id);
+    expect(agentCalls).toHaveLength(2);
+    const [first, next] = agentCalls;
+    const opening = getSystemMessage(first!.items)!;
+    const snapshot = textOf(opening.content);
+    expect(snapshot).toContain("demo/demo-1");
+    expect(snapshot).toMatch(/2026-01-15 12:34 UTC[+-]\d\d:\d\d/u);
+    expect(getSystemMessage(next!.items)).toEqual(opening);
+    const result = next!.items.findIndex(
+      ({ item }) => item.type === "tool_result" && item.callId === "inspect",
+    );
+    expect(result).toBeGreaterThan(-1);
+    expect(
+      next!.items
+        .slice(result + 1)
+        .some(({ item }) => item.type === "context" && textOf(item.content).includes("12:44")),
+    ).toBe(true);
+  } finally {
+    await harness.close();
+    stream.mockRestore();
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 it("runs subagent controls and worktree listing without approval requests", async () => {
   const { DemoProvider } = await import("./demo-provider.ts");
   const { FakeProvider, textStep, toolStep } = await import("@harness/testkit");

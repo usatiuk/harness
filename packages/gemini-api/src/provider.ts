@@ -1,4 +1,4 @@
-import { openingSystem } from "@harness/protocol";
+import { getSystemMessage } from "@harness/protocol";
 import { toolCallKey, mergeModelMetadata, type ModelMetadata } from "@harness/protocol";
 import { GoogleGenAI, ApiError, type Interactions } from "@google/genai";
 import { classifyTransientFailure } from "./errors.ts";
@@ -92,7 +92,7 @@ export function buildInteraction(
         : [],
     ),
   );
-  const opening = openingSystem(request.items);
+  const opening = getSystemMessage(request.items);
   for (const { item, payload } of request.items) {
     if (item === opening) continue;
     if (item.type !== "tool_result") flushToolImages();

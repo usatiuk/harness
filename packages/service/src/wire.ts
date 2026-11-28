@@ -18,6 +18,7 @@ import {
   jsonValueSchema,
   wireConversationSchema,
   wireItemSchema,
+  withoutHistoryGroup,
   wireModelInfoSchema,
   wireUsageSummarySchema,
 } from "@harness/protocol";
@@ -101,8 +102,9 @@ export const projectConversation = (conversation: Conversation): WireConversatio
     config: projectConversationConfig(conversation.config),
   });
 
-export const projectItem = (item: Item): WireItem =>
-  wireItemSchema.parse(
+export const projectItem = (canonical: Item): WireItem => {
+  const item = withoutHistoryGroup(canonical);
+  return wireItemSchema.parse(
     item.type === "tool_result"
       ? {
           ...item,
@@ -113,6 +115,7 @@ export const projectItem = (item: Item): WireItem =>
         ? { ...item, phase: item.phase === undefined ? null : { value: item.phase } }
         : item,
   );
+};
 
 const projectRateCard = (pricing: ModelPricing) => ({
   input: pricing.input,

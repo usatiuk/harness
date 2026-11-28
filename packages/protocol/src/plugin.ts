@@ -1,5 +1,11 @@
 import type { ZodType } from "zod";
-import type { ModelCapabilities, ModelMiddleware, ModelProvider, ModelInvoker } from "./model.ts";
+import type {
+  ModelCapabilities,
+  ModelIdentity,
+  ModelMiddleware,
+  ModelProvider,
+  ModelInvoker,
+} from "./model.ts";
 import type { JsonValue } from "./rpc.ts";
 import type { ToolCall, Tool, ToolMiddleware, ToolContractResolver } from "./tools.ts";
 import type { ContentBlock } from "./content.ts";
@@ -74,7 +80,8 @@ export interface ToolContributionContext {
  * touches control flow.
  */
 export type PluginContextItem =
-  | { type: "context"; key: string; content: ContentBlock[] }
+  // Supplying data couples the notice to its namespaced plugin_data record for branch selection.
+  | { type: "context"; key: string; content: ContentBlock[]; data?: JsonValue }
   | { type: "plugin_data"; data: JsonValue };
 
 export interface ConversationContext {
@@ -89,11 +96,22 @@ export interface TurnStartContext {
 }
 
 export type ContextBoundary =
-  { type: "window" | "turn" | "workspace" } | { type: "tools"; calls: readonly ToolCall[] };
+  | { type: "window" | "turn" | "workspace" }
+  | { type: "tools"; calls: readonly ToolCall[] }
+  /** Once per logical agent request, after the fold decision and before transport retries. */
+  | ({ type: "agentRequest" } & AgentRequestContext);
+
+export interface AgentRequestContext {
+  model: ModelIdentity;
+  /** Pre-contribution compaction decision; omitted if no threshold, or already at it. */
+  capacity?: { estimatedTokens: number; thresholdTokens: number };
+}
 
 export interface Plugin extends ProviderTypeContributions {
   /** Attach turn-owned resources before the turn starts producing work. */
   onTurnStart?(ctx: TurnStartContext): void | Promise<void>;
+  /** Sample once when an opening system message is created; persist its accompanying plugin data with it. */
+  systemContext?(model: ModelIdentity): { content: ContentBlock[]; data: JsonValue };
   contextItems?(ctx: ConversationContext, boundary: ContextBoundary): Promise<PluginContextItem[]>;
   onCompact?(ctx: ConversationContext): Promise<JsonValue[]>;
   readonly id: string;

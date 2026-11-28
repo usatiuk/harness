@@ -20,7 +20,9 @@ import {
   type QuestionRequest,
   type QuestionResponse,
   type NewItem,
+  type AgentRequestContext,
   type ConfigResolver,
+  type ContentBlock,
   type ContextBoundary,
   type CodeEvaluator,
   type Conversation,
@@ -32,6 +34,7 @@ import {
   type PendingInput,
   type HarnessEvent,
   type Item,
+  type ItemAppend,
   type ItemId,
   type JsonValue,
   type KernelEvent,
@@ -425,8 +428,8 @@ export class Engine {
     if (runtime.running) {
       throw new Error(`cannot rewind conversation ${conversationId} while a turn is running`);
     }
-    await this.store.setHead(conversationId, toItemId);
-    this.#emitKernel({ type: "head.changed", conversationId, head: toItemId });
+    const head = await this.store.setHead(conversationId, toItemId);
+    this.#emitKernel({ type: "head.changed", conversationId, head });
   }
 
   /** Runs a standalone, summary-only compaction turn. Refuses to interrupt active work. */
@@ -754,7 +757,7 @@ export class Engine {
     if (!record) throw new Error(`Missing conversation ${conversation.id} during shutdown`);
     if (record.head === null)
       await this.#appendBatch([
-        this.#baseMessage(conversation, null, conversation.config.instructions),
+        this.#buildSystemMessage(conversation, null, conversation.config.instructions),
       ]);
     let saved = 0;
     try {
@@ -1281,7 +1284,7 @@ export class Engine {
         const active = compactedWindow(await this.store.listActiveItems(conversation.id));
         if (!active.length)
           await this.#appendBatch([
-            this.#baseMessage(conversation, turn.id, conversation.config.instructions),
+            this.#buildWindowOpening(conversation, turn.id, conversation.config.instructions),
           ]);
         await this.#notifyTurnStart(conversation, turn.id);
         toolSet = await this.#resolveTools(conversation, runtime);
@@ -1430,7 +1433,8 @@ export class Engine {
         await this.#appendBatch(context);
         toolSchemas = modelSchemas(toolSet, conversation.config.tools?.mode ?? "hybrid");
       }
-      const draft = await this.#assembleContext(conversation, toolSchemas);
+      const active = compactedWindow(await this.store.listActiveItems(conversation.id));
+      const draft = await this.#assembleContext(conversation, toolSchemas, active);
       if (provider.providerOptions !== undefined) draft.providerOptions = provider.providerOptions;
       const capacity = await this.#contextCapacity(conversation, draft);
       if (capacity.shouldCompact && !compactedBeforeAttempt) {
@@ -1447,6 +1451,18 @@ export class Engine {
         if (folded) {
           compactedBeforeAttempt = true;
           continue;
+        }
+      }
+      const contributions = await this.#contextItems(runtime, turnId, async () => active, {
+        type: "agentRequest",
+        model: conversation.config.model,
+        ...(capacity.belowThreshold && { capacity: capacity.belowThreshold }),
+      });
+      signal.throwIfAborted();
+      if (contributions.length) {
+        for (const item of await this.#appendBatch(contributions)) {
+          const visible = modelHistoryItem(item);
+          if (visible) draft.items.push({ item: visible, fromLog: true });
         }
       }
       const build = await this.store.recordContextBuild(draft);
@@ -2429,6 +2445,7 @@ export class Engine {
     build: NewContextBuild,
   ): Promise<{
     shouldCompact: boolean;
+    belowThreshold?: AgentRequestContext["capacity"];
     requestOutputLimit: number | undefined;
     compactionOutputLimit: number | undefined;
   }> {
@@ -2459,7 +2476,7 @@ export class Engine {
       conversation.config.compaction?.thresholdTokens ?? Infinity,
       automatic ?? Infinity,
     );
-    if (!Number.isFinite(threshold) && (info?.contextWindow === undefined || output === undefined))
+    if (!Number.isFinite(threshold))
       return {
         shouldCompact: false,
         requestOutputLimit,
@@ -2498,8 +2515,12 @@ export class Engine {
       break;
     }
     estimate ??= estimateContextTokens(build);
+    const shouldCompact = estimate >= threshold;
     return {
-      shouldCompact: estimate >= threshold,
+      shouldCompact,
+      ...(!shouldCompact && {
+        belowThreshold: { estimatedTokens: estimate, thresholdTokens: threshold },
+      }),
       requestOutputLimit,
       compactionOutputLimit:
         output !== undefined && info?.contextWindow !== undefined
@@ -2555,7 +2576,7 @@ export class Engine {
 
     const config = await this.resolveConfig(conversation);
     const opening = [
-      this.#baseMessage(conversation, turnId, config.instructions),
+      this.#buildWindowOpening(conversation, turnId, config.instructions),
       ...(await this.#windowContext(conversation, turnId, runtime, toolSet, [], true)),
     ];
     const carry: NewItem[] = [];
@@ -2648,9 +2669,11 @@ export class Engine {
     return findModel(this.host.providers.listModels(), model)?.pricing;
   }
 
-  async #appendBatch(inputs: NewItem[]): Promise<void> {
-    for (const item of await this.store.appendItems(inputs))
+  async #appendBatch(inputs: ItemAppend[]): Promise<Item[]> {
+    const items = await this.store.appendItems(inputs);
+    for (const item of items)
       this.#emitKernel({ type: "item.appended", conversationId: item.conversationId, item });
+    return items;
   }
 
   async #contextItems(
@@ -2658,23 +2681,34 @@ export class Engine {
     turnId: TurnId,
     active: () => Promise<Item[]>,
     boundary: ContextBoundary,
-  ): Promise<NewItem[]> {
+  ): Promise<ItemAppend[]> {
     const conversationId = runtime.conversation.id;
     const ctx = { active, service: (key: string) => this.#service(runtime, key) };
-    const items: NewItem[] = [];
+    const items: ItemAppend[] = [];
     for (const plugin of this.host.plugins) {
       for (const item of (await plugin.contextItems?.(ctx, boundary)) ?? []) {
-        items.push(
-          item.type === "plugin_data"
-            ? { ...item, conversationId, turnId, plugin: plugin.id }
-            : { ...item, conversationId, turnId },
-        );
+        if (item.type === "plugin_data") {
+          items.push({ ...item, conversationId, turnId, plugin: plugin.id });
+        } else {
+          const { data, ...notice } = item;
+          const visible = { ...notice, conversationId, turnId };
+          items.push(
+            data === undefined
+              ? visible
+              : [visible, { type: "plugin_data", plugin: plugin.id, conversationId, turnId, data }],
+          );
+        }
       }
     }
     return items;
   }
 
-  #baseMessage(conversation: Conversation, turnId: TurnId | null, instructions: string): NewItem {
+  #buildSystemMessage(
+    conversation: Conversation,
+    turnId: TurnId | null,
+    instructions: string,
+    extra: ContentBlock[] = [],
+  ): NewItem {
     return {
       conversationId: conversation.id,
       turnId,
@@ -2686,8 +2720,39 @@ export class Engine {
           type: "text",
           text: "Cite sources using Markdown links. Apply the latest AGENTS.md notice for each source and scope, including removals.",
         },
+        ...extra,
       ],
     };
+  }
+
+  #buildWindowOpening(
+    conversation: Conversation,
+    turnId: TurnId,
+    instructions: string,
+  ): ItemAppend {
+    const contributions = this.host.plugins.flatMap((plugin) =>
+      plugin.systemContext
+        ? [{ plugin: plugin.id, ...plugin.systemContext(conversation.config.model) }]
+        : [],
+    );
+    const base = this.#buildSystemMessage(
+      conversation,
+      turnId,
+      instructions,
+      contributions.flatMap(({ content }) => content),
+    );
+    return contributions.length
+      ? [
+          base,
+          ...contributions.map(({ plugin, data }): NewItem => ({
+            conversationId: conversation.id,
+            turnId,
+            type: "plugin_data",
+            plugin,
+            data,
+          })),
+        ]
+      : base;
   }
 
   async #windowContext(
@@ -2697,7 +2762,7 @@ export class Engine {
     scopedTools: ToolSet,
     active: Item[],
     opening: boolean,
-  ): Promise<NewItem[]> {
+  ): Promise<ItemAppend[]> {
     const key = "workspace:" + (conversation.workspaceRoot ?? "");
     const previous = active.findLast(
       (item) => item.type === "context" && item.key.startsWith("workspace:"),
@@ -2762,11 +2827,12 @@ export class Engine {
   async #assembleContext(
     conversation: Conversation,
     tools: ToolSchema[],
+    active?: Item[],
   ): Promise<NewContextBuild> {
     // Use the active chain (not the raw log): after a rewind, abandoned-branch items
     // must stay out of context. Read `head` from the store, never off the cached
     // `Runtime.conversation` snapshot.
-    const items = compactedWindow(await this.store.listActiveItems(conversation.id))
+    const items = (active ?? compactedWindow(await this.store.listActiveItems(conversation.id)))
       .map(modelHistoryItem)
       .filter((item) => item !== undefined);
     const payloadList = await this.store.getProviderPayloads(items.map((i) => i.id));

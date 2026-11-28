@@ -30,6 +30,15 @@ item. Continuing afterward appends another child while the abandoned tail remain
 in the raw log. `listActiveItems` follows the selected head's ancestry; model
 context and TUI resume use that active chain.
 
+An append can explicitly group items that must share a branch boundary. They
+remain flat rows with separate IDs, sequence numbers, types and visibility.
+The store assigns each member the same inclusive `{first, last}` IDs in its JSON
+body and commits the batch atomically. Ordinary batches do not imply grouping.
+Rewind to any member retains the group through `last`; a fork before a grouped
+user message starts at the parent of `first`. Neither operation depends on which
+later branch is currently active. Group bounds are store metadata, not model
+input or client presentation. Existing ungrouped rows need no SQLite migration.
+
 Canonical item types are user/assistant messages, reasoning, tool calls, tool
 results, display-only provider activity hints, compaction folds, and
 plugin-injected context. Assistant messages retain optional phase strings/null.

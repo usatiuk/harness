@@ -29,6 +29,7 @@ import type {
   Usage,
 } from "@harness/protocol";
 import { modelRetryPlugin } from "@harness/model-retry";
+import { contextNoticesPlugin } from "@harness/context-notices";
 import { InMemoryStore } from "@harness/store";
 import {
   unusedCodeEvaluator,
@@ -121,6 +122,7 @@ it("looks up the current activation without retargeting handles captured before 
 it("finishes teardown when a completion reaches an idle parent during cancellation", async () => {
   let complete!: () => void;
   const { engine, store } = setup([textStep("done"), textStep("parent reply")], {
+    ...contextNoticesPlugin,
     services: () => [{ key: "background", for: () => ({}), cancel: () => complete() }],
     onTurnStart: async ({ conversation }) => {
       if (!conversation.parentId) return;
@@ -141,6 +143,11 @@ it("finishes teardown when a completion reaches an idle parent during cancellati
     status: "deactivated",
   });
   expect(await store.getLatestTurn(root.id)).toBeUndefined();
+  // Shutdown saves the input and base prompt only; the clock is sampled on the first real request.
+  expect((await store.listOwnedItems(root.id)).map((item) => item.type)).toEqual([
+    "message",
+    "message",
+  ]);
   await engine.prepare(root.id);
   await engine.whenIdle(root.id);
   expect(await store.getLatestTurn(root.id)).toBeUndefined();
@@ -148,6 +155,13 @@ it("finishes teardown when a completion reaches an idle parent during cancellati
   await engine.whenIdle(root.id);
   const history = await store.listOwnedItems(root.id);
   expect(history[0]).toMatchObject({ type: "message", role: "system", turnId: null });
+  const snapshot = history.find(
+    (item) => item.type === "context" && item.key === contextNoticesPlugin.id,
+  );
+  expect(snapshot).toBeDefined();
+  expect(history).toContainEqual(
+    expect.objectContaining({ type: "plugin_data", parent: snapshot!.id }),
+  );
   expect(userTexts(history)).toEqual(["child completed", "continue"]);
   expect(history.at(-1)).toMatchObject({ type: "message", role: "assistant" });
 });
@@ -2239,11 +2253,15 @@ describe("Engine — compaction", () => {
     const { engine, store } = setup([], {
       providers: () => [provider],
       policies: () => ({ compaction: fakeCompaction({ over: 0 }) }),
+      ...contextNoticesPlugin,
     });
     const conversation = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conversation.id, userInput("run"));
     await engine.whenIdle(conversation.id);
     expect(compactions(await store.listOwnedItems(conversation.id))).toHaveLength(1);
+    expect(
+      (await store.listOwnedItems(conversation.id)).some((item) => item.type === "context"),
+    ).toBe(false);
     expect(provider.requests[0]!.items.map(({ item }) => item.type)).toEqual([
       "message",
       "compaction",
@@ -3538,6 +3556,130 @@ const injector =
       : [];
 
 describe("Engine — context injection", () => {
+  it("contributes opening and per-request context without splitting tools or instrumenting the compactor", async () => {
+    const provider = new RecordingProvider(
+      [
+        toolStep(
+          "echo-1",
+          "echo",
+          { text: "test" },
+          { inputTokens: 7_000, outputTokens: 1, cachedReadTokens: 0 },
+        ),
+        textStep("done"),
+        textStep("summary"),
+      ],
+      { maxInputTokens: 10_000, maxOutputTokens: 1_000 },
+    );
+    const { engine, store } = setup([], {
+      providers: () => [provider],
+      policies: () => ({ compaction: modelCompaction }),
+      systemContext: (model) => ({
+        content: [{ type: "text", text: model.model }],
+        data: model.model,
+      }),
+      contextItems: async (ctx, boundary) => {
+        if (boundary.type !== "agentRequest") return [];
+        const { model, capacity } = boundary;
+        const active = await ctx.active();
+        return [
+          {
+            type: "context",
+            key: model.model,
+            content: [{ type: "text", text: active.at(-1)!.type }],
+          },
+          { type: "plugin_data", data: capacity ?? null },
+        ];
+      },
+    });
+    const { id } = await store.createConversation(newConversationInput(CONFIG));
+    await engine.deliver(id, userInput("start"));
+    await engine.whenIdle(id);
+    const [first, second] = provider.requests;
+    const tail = (request: ModelRequest) => request.items.at(-1)?.item;
+    expect(tail(first!)).toMatchObject({
+      type: "context",
+      key: "fake-1",
+      content: [{ text: "message" }],
+    });
+    expect(second!.items.slice(0, first!.items.length)).toEqual(first!.items);
+    expect(second!.items.slice(first!.items.length).map(({ item }) => item.type)).toEqual([
+      "tool_call",
+      "tool_result",
+      "context",
+    ]);
+    expect(tail(second!)).toMatchObject({ content: [{ text: "tool_result" }] });
+    const data = (await store.listActiveItems(id)).filter((item) => item.type === "plugin_data");
+    // The existing policy reserves one output and 2% input headroom; a matching provider
+    // checkpoint contributes its reported input, not an independent local-only estimate.
+    expect(data.at(-1)).toMatchObject({ data: { thresholdTokens: 8_800 } });
+    expect((data.at(-1)!.data as { estimatedTokens: number }).estimatedTokens).toBeGreaterThan(
+      7_000,
+    );
+    expect(await engine.compact(id)).toBe("compacted");
+    expect(
+      provider.requests.at(-1)!.items.filter(({ item }) => item.type === "context"),
+    ).toHaveLength(2);
+    const folded = compactedWindow(await store.listActiveItems(id));
+    expect(folded.map((item) => item.type)).toEqual(["message", "plugin_data", "compaction"]);
+    for (const opening of [folded[0], first!.items[0]!.item]) {
+      expect(opening).toMatchObject({ type: "message", role: "system" });
+      expect(opening?.type === "message" && opening.content).toContainEqual({
+        type: "text",
+        text: "fake-1",
+      });
+    }
+    expect(folded[1]).toMatchObject({ plugin: "fake", data: "fake-1" });
+  });
+
+  it("rewinds to visible notices without splitting their state and reissues only abandoned warnings", async () => {
+    const usage = { inputTokens: 9_100, outputTokens: 1, cachedReadTokens: 0 };
+    const provider = new RecordingProvider(
+      Array.from({ length: 8 }, () => textStep("done", undefined, usage)),
+    );
+    const { engine, store, events } = setup([], {
+      ...contextNoticesPlugin,
+      providers: () => [provider],
+    });
+    const config = { ...CONFIG, compaction: { thresholdTokens: 10_000 } };
+    const { id } = await store.createConversation(newConversationInput(config));
+    const turn = async (target: typeof id) => {
+      await engine.deliver(target, userInput("next"));
+      await engine.whenIdle(target);
+      expect((await store.getLatestTurn(target))?.status).toBe("completed");
+      return store.listActiveItems(target);
+    };
+    const first = await turn(id);
+    const opening = first[0]!;
+    const notices = (items: Item[]) =>
+      items.filter((item) => item.type === "context" && item.key === contextNoticesPlugin.id);
+    expect(notices(first)).toHaveLength(0);
+    const second = await turn(id);
+    const [warning] = notices(second);
+    expect(warning).toMatchObject({ type: "context" });
+    const rewindVisible = async (item: Item) => {
+      await engine.rewind(id, item.id);
+      const head = (await store.listActiveItems(id)).at(-1)!;
+      expect(head).toMatchObject({
+        type: "plugin_data",
+        plugin: contextNoticesPlugin.id,
+        parent: item.id,
+      });
+      expect(events.at(-1)).toMatchObject({ type: "head.changed", head: head.id });
+    };
+    await rewindVisible(warning!);
+    const resumed = await turn(id);
+    expect(notices(resumed)).toEqual([warning]);
+    const user = resumed.findLast((item) => item.type === "message" && item.role === "user")!;
+    const fork = await store.forkConversation(id, user.id, config);
+    expect(notices(await turn(fork.id))).toEqual([warning]);
+
+    await rewindVisible(opening);
+    expect(notices(await turn(id))).toHaveLength(0);
+    const freshWarnings = notices(await turn(id));
+    expect(freshWarnings).toHaveLength(1);
+    expect(freshWarnings[0]!.id).not.toBe(warning!.id);
+  });
+
   it("injects a keyed context item once across repeated triggering calls", async () => {
     const { store, engine } = setup(
       [toolStep("c1", "echo", {}), toolStep("c2", "echo", {}), textStep("done")],
@@ -3705,6 +3847,7 @@ describe("Engine — model middleware", () => {
 
   it("reports retries with the caller's purpose and records provider attempts", async () => {
     let calls = 0;
+    const seen: ModelRequest[] = [];
     const usage = { inputTokens: 1000, outputTokens: 50, cachedReadTokens: 0 };
     const flaky: ModelProvider = {
       provider: "fake",
@@ -3716,7 +3859,8 @@ describe("Engine — model middleware", () => {
       }),
       validateConfig: () => {},
       listModels: () => [{ provider: "fake", model: "fake-1", pricing: { input: 1, output: 2 } }],
-      async *stream() {
+      async *stream(request) {
+        seen.push(request);
         if (++calls === 1) throw new TransientModelFailure("rate_limit", { retryAfterMs: 5 });
         yield* textStep("recovered", undefined, usage);
       },
@@ -3724,11 +3868,16 @@ describe("Engine — model middleware", () => {
     const { store, engine, events } = setup([], {
       providers: () => [flaky],
       modelMiddleware: () => realRetry(),
+      contextItems: async (_ctx, boundary) =>
+        boundary.type === "agentRequest"
+          ? [{ type: "context", key: "notice", content: [{ type: "text", text: "notice" }] }]
+          : [],
     });
     const conv = await store.createConversation(newConversationInput(CONFIG));
     await engine.deliver(conv.id, userInput("go"));
     await engine.whenIdle(conv.id);
     expect(calls).toBe(2);
+    expect(seen[0]!.items).toEqual(seen[1]!.items);
     expect(events.filter((e) => e.type === "model.retry")).toMatchObject([
       { conversationId: conv.id, purpose: "agent", attempt: 2, reason: "rate_limit" },
     ]);
@@ -3744,6 +3893,7 @@ describe("Engine — model middleware", () => {
     // A retried call yields exactly one canonical output.
     expect(shapeOf(await store.listOwnedItems(conv.id))).toEqual([
       "user:go",
+      "context:notice",
       "assistant:recovered",
     ]);
   });

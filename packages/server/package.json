@@ -80,6 +80,7 @@
     "@harness/litellm": "*",
     "@harness/mistral": "*",
     "@harness/connections": "*",
+    "@harness/context-notices": "*",
     "@harness/mcp": "*",
     "@harness/conversation-titles": "*",
     "@harness/worktrees": "*",

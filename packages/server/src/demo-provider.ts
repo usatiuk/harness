@@ -65,7 +65,8 @@ export class DemoProvider implements ModelProvider {
   }
 
   async *stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelStreamEvent> {
-    const last = request.items.at(-1)?.item;
+    // A clock or budget notice after a tool result isn't a new user request.
+    const last = request.items.findLast(({ item }) => item.type !== "context")?.item;
 
     const discoveryIds = new Set(
       request.items.flatMap(({ item }) =>

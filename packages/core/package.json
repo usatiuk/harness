@@ -15,6 +15,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@harness/context-notices": "*",
     "@harness/model-retry": "*",
     "@harness/store": "*",
     "@harness/testkit": "*",

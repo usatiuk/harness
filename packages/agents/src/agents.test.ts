@@ -34,7 +34,9 @@ const setup = (
       { service: serviceOf, active: async () => active },
       boundary,
     );
-    active.push(...output.map((item) => ({ ...item, plugin: agentsPlugin.id }) as Item));
+    for (const item of output)
+      if (item.data !== undefined)
+        active.push({ type: "plugin_data", plugin: agentsPlugin.id, data: item.data } as Item);
     return output.flatMap((item) => (item.type === "context" ? item.content : []));
   };
   const read = (path: string) =>

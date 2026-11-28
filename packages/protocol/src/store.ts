@@ -8,7 +8,7 @@ import type {
   Turn,
   TurnStatus,
 } from "./conversation.ts";
-import type { Item, NewItem } from "./items.ts";
+import type { Item, ItemAppend, NewItem } from "./items.ts";
 import type { ProviderPayload } from "./model.ts";
 import type { ContextBuild, NewContextBuild } from "./policies.ts";
 import type { OutputRef } from "./tools.ts";
@@ -125,13 +125,13 @@ export interface Store {
    * and advances `head`. Callers never set `parent`.
    */
   /** Atomic ordered append on one branch. A compaction points at the first item in its batch. */
-  appendItems(inputs: NewItem[]): Promise<Item[]>;
+  appendItems(inputs: readonly ItemAppend[]): Promise<Item[]>;
   appendItem(input: NewItem): Promise<Item>;
   /** The raw log in `seq` order (full history, including abandoned branches). */
   listOwnedItems(conversationId: ConversationId, range?: SeqRange): Promise<Item[]>;
 
-  /** Move head to an existing item, irrespective of physical owner. */
-  setHead(conversationId: ConversationId, itemId: ItemId): Promise<void>;
+  /** Move head to the item (or its group end), irrespective of physical owner. */
+  setHead(conversationId: ConversationId, itemId: ItemId): Promise<ItemId>;
   /** Items on head's ancestor chain, oldest first by chain position, across owners. */
   listActiveItems(conversationId: ConversationId): Promise<Item[]>;
   /** One immutable item by its globally unique ID. */
