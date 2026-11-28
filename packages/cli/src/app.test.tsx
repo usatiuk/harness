@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
+import { act, type ReactElement } from "react";
 import { render } from "ink-testing-library";
 import {
   zeroUsage,
@@ -15,9 +16,26 @@ import type { CliPlugins } from "./client-plugins.ts";
 
 const shellCells = (cells: Cell[]): Extract<Cell, { kind: "shell" }>[] =>
   cells.filter((c): c is Extract<Cell, { kind: "shell" }> => c.kind === "shell");
-const flush = async (): Promise<void> => {
-  for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
-};
+beforeAll(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+});
+afterAll(() => vi.unstubAllGlobals());
+
+// Own the Ink root (including spinner timers) even if an assertion fails.
+// Drive the actual React commit instead of racing its scheduler against a timer.
+async function renderApp(element: ReactElement) {
+  const app = await act(async () => render(element));
+  onTestFinished(async () => {
+    await act(async () => app.unmount());
+    app.cleanup();
+  });
+  return {
+    lastFrame: app.lastFrame,
+    write: async (input: string) => {
+      await act(async () => app.stdin.write(input));
+    },
+  };
+}
 
 const toolCall = (callId: string, name: string, args: unknown): HarnessEvent => ({
   type: "item.appended",
@@ -68,11 +86,16 @@ const conversation = {
 
 function harness() {
   const setPluginConfig = vi.fn(async () => {});
-  return { ...testEventClient({ setPluginConfig }), setPluginConfig };
+  const { service, emit } = testEventClient({ setPluginConfig });
+  return {
+    service,
+    setPluginConfig,
+    emit: async (event: HarnessEvent) => {
+      await act(async () => emit(event));
+    },
+  };
 }
 
-// React commits emitted updates asynchronously (scheduler ticks), so frame assertions
-// after an emit poll with vi.waitFor instead of racing the commit with a timer.
 const mount = (
   service: AppProps["service"],
   initialItems: Item[] = [],
@@ -80,7 +103,7 @@ const mount = (
   plugins: CliPlugins = testPlugins(),
   initialUsage: AppProps["initialUsage"] = { usage: zeroUsage(), incomplete: false, cost: 0 },
 ) =>
-  render(
+  renderApp(
     <App
       service={service}
       plugins={plugins}
@@ -116,7 +139,7 @@ describe("App", () => {
     Object.assign(service, { forkBefore, deliver });
     const drafts = new Map<string, string>();
     const onResume = vi.fn();
-    const app = render(
+    const app = await renderApp(
       <App
         service={service}
         plugins={testPlugins()}
@@ -130,16 +153,14 @@ describe("App", () => {
         onReload={() => {}}
       />,
     );
-    app.stdin.write("/fork");
-    await flush();
-    app.stdin.write("\r");
-    await vi.waitFor(() => expect(app.lastFrame()).toContain("Fork before a user message"));
-    app.stdin.write("\r");
-    await vi.waitFor(() => expect(onResume).toHaveBeenCalledWith("fork"));
+    await app.write("/fork");
+    await app.write("\r");
+    expect(app.lastFrame()).toContain("Fork before a user message");
+    await app.write("\r");
+    expect(onResume).toHaveBeenCalledWith("fork");
     expect(forkBefore).toHaveBeenCalledWith("c1", "user-1");
     expect(drafts.get("fork")).toBe("edit this");
     expect(deliver).not.toHaveBeenCalled();
-    app.unmount();
   });
   it("labels totals as incomplete when a provider omitted usage", () => {
     expect(
@@ -162,9 +183,9 @@ describe("App", () => {
     ).toContain("usage incomplete");
   });
 
-  it("shows the composer and the model on mount", () => {
+  it("shows the composer and the model on mount", async () => {
     const { service } = harness();
-    const { lastFrame } = mount(service);
+    const { lastFrame } = await mount(service);
     expect(lastFrame()).toContain("type a message");
     expect(lastFrame()).toContain("demo-1");
   });
@@ -172,14 +193,12 @@ describe("App", () => {
   it("routes a sandbox setting through reload before persisting it", async () => {
     const { service, setPluginConfig } = harness();
     const onReload = vi.fn<AppProps["onReload"]>();
-    const { stdin } = mount(service, [], onReload);
+    const { write } = await mount(service, [], onReload);
 
-    stdin.write("/sandbox native");
-    await flush();
-    stdin.write("\r");
-    await flush();
+    await write("/sandbox native");
+    await write("\r");
 
-    await vi.waitFor(() => expect(onReload).toHaveBeenCalledOnce());
+    expect(onReload).toHaveBeenCalledOnce();
     const mutation = onReload.mock.calls[0]![0]!;
     expect(setPluginConfig).not.toHaveBeenCalled();
     await mutation.apply();
@@ -194,24 +213,22 @@ describe("App", () => {
   it("refuses reload while the foreground turn is active", async () => {
     const { service, emit } = harness();
     const onReload = vi.fn<AppProps["onReload"]>();
-    const { stdin, lastFrame } = mount(service, [], onReload);
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    await vi.waitFor(() => expect(lastFrame()).toContain("Working"));
+    const { write, lastFrame } = await mount(service, [], onReload);
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    expect(lastFrame()).toContain("Working");
 
-    stdin.write("/reload");
-    await flush();
-    stdin.write("\r");
-    await flush();
+    await write("/reload");
+    await write("\r");
 
-    await vi.waitFor(() => expect(lastFrame()).toContain("interrupt the current turn"));
+    expect(lastFrame()).toContain("interrupt the current turn");
     expect(onReload).not.toHaveBeenCalled();
   });
 
   it("keeps exploration stable until narration closes it, then starts a new stage", async () => {
     const { service, emit } = harness();
-    const { lastFrame } = mount(service);
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit({
+    const { lastFrame } = await mount(service);
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    await emit({
       type: "item.appended",
       conversationId: "c1",
       item: {
@@ -226,21 +243,26 @@ describe("App", () => {
         content: [{ type: "text", text: "inspect" }],
       },
     });
-    emit(toolCall("read-1", "read_file", { path: "README.md" }));
-    await vi.waitFor(() => expect(lastFrame()).toContain("• Explored\n  └ Read README.md"));
+    await emit(toolCall("read-1", "read_file", { path: "README.md" }));
+    expect(lastFrame()).toContain("• Explored\n  └ Read README.md");
     expect(lastFrame()).toContain("Working…");
     expect(lastFrame()!.match(/Read README\.md/gu)).toHaveLength(1);
 
-    emit(toolResult("read-1", "ok", [{ type: "text", text: "# Harness" }]));
-    await vi.waitFor(() => expect(lastFrame()).toContain("• Explored\n  └ Read README.md"));
+    await emit(toolResult("read-1", "ok", [{ type: "text", text: "# Harness" }]));
+    expect(lastFrame()).toContain("• Explored\n  └ Read README.md");
     expect(lastFrame()!.match(/Read README\.md/gu)).toHaveLength(1);
 
-    emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "I found the data" });
-    await vi.waitFor(() => expect(lastFrame()).toContain("I found the data"));
+    await emit({
+      type: "text_delta",
+      conversationId: "c1",
+      turnId: "t1",
+      text: "I found the data",
+    });
+    expect(lastFrame()).toContain("I found the data");
     expect(lastFrame()).toContain("• Explored");
     expect(lastFrame()).toContain("I found the data");
     expect(lastFrame()).toContain("Working…");
-    emit({
+    await emit({
       type: "item.appended",
       conversationId: "c1",
       item: {
@@ -255,13 +277,13 @@ describe("App", () => {
         content: [{ type: "text", text: "I found the data" }],
       },
     });
-    emit(toolCall("search-1", "glob", { pattern: "text_delta" }));
-    await vi.waitFor(() => expect(lastFrame()).toContain("• Explored\n  └ Search text_delta"));
+    await emit(toolCall("search-1", "glob", { pattern: "text_delta" }));
+    expect(lastFrame()).toContain("• Explored\n  └ Search text_delta");
     expect(lastFrame()!.match(/Explored/gu)).toHaveLength(2);
 
-    emit(toolResult("search-1", "ok", [{ type: "text", text: "packages/cli/src/app.tsx" }]));
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
-    await vi.waitFor(() => expect(lastFrame()).toContain("• Worked for"));
+    await emit(toolResult("search-1", "ok", [{ type: "text", text: "packages/cli/src/app.tsx" }]));
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
+    expect(lastFrame()).toContain("• Worked for");
     expect(lastFrame()!.match(/Explored/gu)).toHaveLength(2);
     expect(lastFrame()).not.toContain("Working…");
     const lines = lastFrame()!.split("\n");
@@ -272,14 +294,14 @@ describe("App", () => {
 
   it("keeps pending stages in chronological order when narration starts another stage", async () => {
     const { service, emit } = harness();
-    const { lastFrame } = mount(service);
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit(toolCall("command-1", "bash", { command: "echo pending" }));
-    emit(toolCall("read-1", "read_file", { path: "README.md" }));
-    emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "I found a lead" });
-    emit(toolCall("read-2", "read_file", { path: "package.json" }));
+    const { lastFrame } = await mount(service);
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    await emit(toolCall("command-1", "bash", { command: "echo pending" }));
+    await emit(toolCall("read-1", "read_file", { path: "README.md" }));
+    await emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "I found a lead" });
+    await emit(toolCall("read-2", "read_file", { path: "package.json" }));
 
-    await vi.waitFor(() => expect(lastFrame()).toContain("Read package.json"));
+    expect(lastFrame()).toContain("Read package.json");
     const frame = lastFrame()!;
     expect(frame.indexOf("echo pending")).toBeLessThan(frame.indexOf("Read README.md"));
     expect(frame.indexOf("Read README.md")).toBeLessThan(frame.indexOf("I found a lead"));
@@ -296,16 +318,15 @@ describe("App", () => {
       });
       return { id: "shell-test", accepted };
     });
-    const { stdin, lastFrame } = mount(service, [], () => {}, testPlugins({ runShell }));
+    const { write, lastFrame } = await mount(service, [], () => {}, testPlugins({ runShell }));
 
-    stdin.write("!watch");
-    await flush();
-    stdin.write("\r");
-    await vi.waitFor(() => expect(runShell).toHaveBeenCalledOnce());
-    await vi.waitFor(() => expect(lastFrame()).toContain("watched"));
+    await write("!watch");
+    await write("\r");
+    expect(runShell).toHaveBeenCalledOnce();
+    expect(lastFrame()).toContain("watched");
   });
 
-  it("reconstructs thought and exploration stages from resumed items", () => {
+  it("reconstructs thought and exploration stages from resumed items", async () => {
     const { service } = harness();
     const base = {
       conversationId: "c1",
@@ -360,7 +381,7 @@ describe("App", () => {
         content: [{ type: "text", text: "done" }],
       },
     ] as Item[];
-    const { lastFrame } = mount(service, items);
+    const { lastFrame } = await mount(service, items);
     expect(lastFrame()).toContain(
       "› inspect\n\n• Thought\n\n• Explored\n  └ Read README.md\n\n  done",
     );
@@ -370,9 +391,9 @@ describe("App", () => {
 
   it("updates the displayed model when a config.changed event arrives", async () => {
     const { service, emit } = harness();
-    const { lastFrame } = mount(service);
+    const { lastFrame } = await mount(service);
     expect(lastFrame()).toContain("demo-1");
-    emit({
+    await emit({
       type: "config.changed",
       conversationId: "c1",
       config: {
@@ -381,29 +402,29 @@ describe("App", () => {
         plugins: {},
       },
     });
-    await vi.waitFor(() => expect(lastFrame()).toContain("gpt-5.1"));
+    expect(lastFrame()).toContain("gpt-5.1");
   });
 
   it("renders streaming assistant text from the event stream", async () => {
     const { service, emit } = harness();
-    const { lastFrame } = mount(service);
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "Hello there" });
-    await vi.waitFor(() => expect(lastFrame()).toContain("Hello there"));
+    const { lastFrame } = await mount(service);
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    await emit({ type: "text_delta", conversationId: "c1", turnId: "t1", text: "Hello there" });
+    expect(lastFrame()).toContain("Hello there");
     expect(lastFrame()!.indexOf("Hello there")).toBeLessThan(lastFrame()!.indexOf("Working…"));
   });
 
   it("shows live reasoning and settles it as a timed thought", async () => {
     const { service, emit } = harness();
-    const { lastFrame } = mount(service);
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit({
+    const { lastFrame } = await mount(service);
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    await emit({
       type: "reasoning_delta",
       conversationId: "c1",
       turnId: "t1",
       text: "considering the boundary",
     });
-    await vi.waitFor(() => expect(lastFrame()).toContain("considering the boundary"));
+    expect(lastFrame()).toContain("considering the boundary");
     const liveFrame = lastFrame()!;
     expect(liveFrame.indexOf("considering the boundary")).toBeLessThan(
       liveFrame.indexOf("Working…"),
@@ -412,7 +433,7 @@ describe("App", () => {
     const workingLine = liveLines.findIndex((line) => line.includes("Working…"));
     expect(liveLines[workingLine - 1]).toBe("");
     expect(liveLines[workingLine + 1]).toBe("");
-    emit({
+    await emit({
       type: "item.appended",
       conversationId: "c1",
       item: {
@@ -426,39 +447,39 @@ describe("App", () => {
         content: [{ type: "text", text: "considering the boundary" }],
       },
     });
-    await vi.waitFor(() => expect(lastFrame()).toContain("• Thought for"));
+    expect(lastFrame()).toContain("• Thought for");
     expect(lastFrame()).not.toContain("considering the boundary");
     expect(lastFrame()!.indexOf("Thought for")).toBeLessThan(lastFrame()!.indexOf("Working…"));
   });
 
   it("collapses a running tool's args by default and expands them on Ctrl+O", async () => {
     const { service, emit } = harness();
-    const { stdin, lastFrame } = mount(service);
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit(toolCall("k1", "bash", { command: "npm test" }));
+    const { write, lastFrame } = await mount(service);
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    await emit(toolCall("k1", "bash", { command: "npm test" }));
     // Compact: the command is shown as a summary, the raw args JSON is not.
-    await vi.waitFor(() => expect(lastFrame()).toContain("npm test"));
+    expect(lastFrame()).toContain("npm test");
     expect(lastFrame()).toContain("Working…");
     expect(lastFrame()).not.toContain('"command"');
-    stdin.write("\x0f"); // Ctrl+O toggles verbose
+    await write("\x0f"); // Ctrl+O toggles verbose
     // Verbose: the full args blob renders for the still-live cell.
-    await vi.waitFor(() => expect(lastFrame()).toContain('"command"'));
+    expect(lastFrame()).toContain('"command"');
   });
 
   it("renders live auto-review progress and the final saved decision", async () => {
     const { service, emit } = harness();
-    const { lastFrame } = mount(service);
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit(toolCall("k1", "bash", { command: "echo hi" }));
-    emit({
+    const { lastFrame } = await mount(service);
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    await emit(toolCall("k1", "bash", { command: "echo hi" }));
+    await emit({
       type: "auto-approval.reviewing",
       conversationId: "c1",
       callId: "k1",
       name: "bash",
       model: { provider: "demo", model: "demo-1" },
     });
-    await vi.waitFor(() => expect(lastFrame()).toContain("auto approver (demo/demo-1) reviewing"));
-    emit(
+    expect(lastFrame()).toContain("auto approver (demo/demo-1) reviewing");
+    await emit(
       toolResult("k1", "ok", [{ type: "text", text: "done" }], {
         approval: {
           decision: "allow",
@@ -468,21 +489,21 @@ describe("App", () => {
         },
       }),
     );
-    await vi.waitFor(() => expect(lastFrame()).toContain("auto approver (demo/demo-1) approved"));
+    expect(lastFrame()).toContain("auto approver (demo/demo-1) approved");
   });
 
   it("reprints a finalized tool's full output when verbose toggles", async () => {
     const { service, emit } = harness();
-    const { stdin, lastFrame } = mount(service);
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit(toolCall("k1", "bash", { command: "npm test" }));
-    emit(toolResult("k1", "ok", [{ type: "text", text: "all good\nsecond line" }]));
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
+    const { write, lastFrame } = await mount(service);
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    await emit(toolCall("k1", "bash", { command: "npm test" }));
+    await emit(toolResult("k1", "ok", [{ type: "text", text: "all good\nsecond line" }]));
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
     // Commands stay explicit; compact mode keeps one result line and verbose restores the rest.
-    await vi.waitFor(() => expect(lastFrame()).toContain("all good"));
+    expect(lastFrame()).toContain("all good");
     expect(lastFrame()).not.toContain("second line");
-    stdin.write("\x0f"); // Ctrl+O: wipe + reprint verbose
-    await vi.waitFor(() => expect(lastFrame()).toContain("second line"));
+    await write("\x0f"); // Ctrl+O: wipe + reprint verbose
+    expect(lastFrame()).toContain("second line");
   });
 
   it("keeps asynchronous questions available after a turn ends without hiding the composer", async () => {
@@ -509,23 +530,22 @@ describe("App", () => {
         respond: async () => {},
       },
     });
-    const { lastFrame, unmount } = mount(service, [], undefined, plugins);
-    await vi.waitFor(() => expect(lastFrame()).toContain("/questions to answer"));
-    expect(lastFrame()).toContain("type a message");
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    await vi.waitFor(() => expect(lastFrame()).toContain("Working"));
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
-    await vi.waitFor(() => expect(lastFrame()).not.toContain("Working"));
+    const { lastFrame } = await mount(service, [], undefined, plugins);
     expect(lastFrame()).toContain("/questions to answer");
-    unmount();
+    expect(lastFrame()).toContain("type a message");
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    expect(lastFrame()).toContain("Working");
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "completed" });
+    expect(lastFrame()).not.toContain("Working");
+    expect(lastFrame()).toContain("/questions to answer");
   });
 
   it("shows an approval prompt and hides the composer while pending", async () => {
     const { service, emit } = harness();
-    const { lastFrame } = mount(service);
-    emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
-    emit(toolCall("k1", "read_file", { path: "secret.txt" }));
-    emit({
+    const { lastFrame } = await mount(service);
+    await emit({ type: "turn.status", conversationId: "c1", turnId: "t1", status: "running" });
+    await emit(toolCall("k1", "read_file", { path: "secret.txt" }));
+    await emit({
       type: "request.created",
       requestId: "q1",
       conversationId: "c1",
@@ -535,7 +555,7 @@ describe("App", () => {
         relationship: "unknown",
       },
     });
-    await vi.waitFor(() => expect(lastFrame()).toContain("approve read_file?"));
+    expect(lastFrame()).toContain("approve read_file?");
     expect(lastFrame()).toContain("secret.txt");
     expect(lastFrame()).toContain("Working…");
     expect(lastFrame()).not.toContain("type a message");
@@ -600,29 +620,26 @@ it.each([
           used === undefined ? null : { inputTokens: used, outputTokens: 0, cachedReadTokens: 0 },
       },
     };
-    const app = mount(service, [], () => {}, testPlugins(), summary);
-    await vi.waitFor(() => expect(app.lastFrame()).toContain(expected));
+    const app = await mount(service, [], () => {}, testPlugins(), summary);
+    expect(app.lastFrame()).toContain(expected);
     if ("maxInputTokens" in limits && "contextWindow" in limits) {
       expect(app.lastFrame()?.replace(/\s+/gu, " ")).toContain(
         "input limit 1.0k · shared context window 2.0k",
       );
     }
-    emit({
+    await emit({
       type: "config.changed",
       conversationId: "c1",
       config: { ...conversation.config, model: { provider: "demo", model: "demo-2" } },
     });
     // Auxiliary/retried accounting can change totals and generic last input, never
     // the authoritative agent checkpoint used for the percentage.
-    emit({
+    await emit({
       type: "usage.changed",
       conversationId: "c1",
       summary: { ...summary, lastInputTokens: 42, usage: { ...summary.usage, inputTokens: 10001 } },
     });
-    await vi.waitFor(() => {
-      expect(app.lastFrame()).toContain("demo-2");
-      expect(app.lastFrame()).toContain(expected);
-    });
-    app.unmount();
+    expect(app.lastFrame()).toContain("demo-2");
+    expect(app.lastFrame()).toContain(expected);
   },
 );

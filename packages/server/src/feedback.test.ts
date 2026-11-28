@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
+import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 
 // Shell startup is an OS edge; the real cold-owner path is covered in shell-startup.test.ts.
 vi.mock("@harness/execution", async (importOriginal) => ({
@@ -21,12 +22,19 @@ import {
 } from "@harness/feedback/client";
 import { MemorySecretStore } from "@harness/secrets";
 import * as credentials from "./credential-store.ts";
+import { textStep } from "@harness/testkit";
+import { DemoProvider } from "./demo-provider.ts";
 import { buildServerHarness } from "./index.ts";
 
-// The Windows runner can spend most of the default test budget writing and reading the 32 MiB boundary case.
-it("collects a rich vote case through RPC, queues offline delivery, and retries the same identity", async () => {
+async function startFeedback() {
   const home = await mkdtemp(join(tmpdir(), "feedback-rpc-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  onTestFinished(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
   vi.stubEnv("HARNESS_HOME", home);
+  vi.stubEnv("HARNESS_SERVER_SELECTION", undefined);
   vi.stubEnv("MAI_TOKEN", "");
   for (const key of [
     "OPENAI_API_KEY",
@@ -45,7 +53,7 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
     store: secretStore,
     kind: "file",
   });
-  let online = false;
+  const receiver = { online: false };
   const received: Record<string, unknown>[] = [];
   const http = createServer((request, response) => {
     let body = "";
@@ -55,7 +63,7 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
     });
     request.on("end", () => {
       expect(request.headers.authorization).toBe("Bearer fixture-controller-token");
-      if (!online) {
+      if (!receiver.online) {
         response.writeHead(503).end();
         return;
       }
@@ -65,319 +73,379 @@ it("collects a rich vote case through RPC, queues offline delivery, and retries 
       response.end(JSON.stringify({ id: packet.id }));
     });
   });
-  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  const listening = once(http, "listening");
+  http.listen(0, "127.0.0.1");
+  await listening;
+  onTestFinished(() => http[Symbol.asyncDispose]());
   const address = http.address();
   if (!address || typeof address === "string") throw new Error("missing HTTP address");
   const pair = createInProcessMessageConnectionPair();
   const harness = await buildServerHarness(pair.right);
+  onTestFinished(() => harness.close());
   const client = new HarnessClient({
     connection: pair.left,
     client: { name: "feedback-test", version: "1" },
   });
-  try {
-    await client.start();
-    expect(await client.peer.request(feedbackStatusRequest, {})).toMatchObject({
-      enabled: false,
-      storageBytes: 0,
+  onTestFinished(() => client.closeConnection());
+  await client.start();
+  return {
+    home,
+    harness,
+    client,
+    chooseStore,
+    endpoint: `http://127.0.0.1:${address.port}`,
+    receiver,
+    received,
+  };
+}
+
+it("collects a rich vote case through RPC, queues offline delivery, and retries the same identity", async () => {
+  const { home, harness, client, chooseStore, endpoint, receiver, received } =
+    await startFeedback();
+  // Exercise actual capture on successful turns, without the interactive demo's timers and command discovery.
+  vi.spyOn(DemoProvider.prototype, "stream").mockImplementation(async function* () {
+    yield* textStep("Feedback fixture response");
+  });
+  expect(await client.peer.request(feedbackStatusRequest, {})).toMatchObject({
+    enabled: false,
+    storageBytes: 0,
+  });
+  const captureConversation = await harness.service.createConversation({
+    overrides: { model: { provider: "demo", model: "demo-1" }, tools: { allow: [] } },
+  });
+  await harness.service.send(captureConversation.id, "No capture");
+  await harness.service.whenIdle(captureConversation.id);
+  expect(await harness.store.getPluginStateSize("model-evidence")).toBe(0);
+  await client.peer.request(feedbackConfigureRequest, {
+    enabled: true,
+    endpoint,
+    token: "fixture-controller-token",
+  });
+  const status = await client.peer.request(feedbackStatusRequest, {});
+  expect(status.configured).toBe(true);
+  await harness.service.send(captureConversation.id, "Capture this call");
+  await harness.service.whenIdle(captureConversation.id);
+  expect(await harness.store.getPluginStateSize("model-evidence")).toBeGreaterThan(0);
+  expect(chooseStore).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(status)).not.toContain("fixture-controller-token");
+  const { readGlobalSettings } = await import("@harness/config");
+  expect(JSON.stringify(await readGlobalSettings(home))).not.toContain("fixture-controller-token");
+  const conversation = await harness.service.createConversation({
+    overrides: { model: { provider: "demo", model: "demo-1" } },
+  });
+  await client.attach(conversation.id);
+  const turn = await harness.store.createTurn(conversation.id);
+  const firstReasoning = await harness.store.appendItem({
+    conversationId: conversation.id,
+    turnId: turn.id,
+    type: "reasoning",
+    content: [{ type: "text", text: "I will edit before inspecting callers" }],
+  });
+  const firstCall = await harness.store.appendItem({
+    conversationId: conversation.id,
+    turnId: turn.id,
+    type: "tool_call",
+    callId: "edit-1",
+    name: "edit_file",
+    args: { path: "public.py" },
+  });
+  for (const item of [firstReasoning, firstCall])
+    await harness.store.putPluginState("model-evidence", conversation.id, `item:${item.id}`, {
+      attemptId: "first-edit",
     });
-    const captureConversation = await harness.service.createConversation({
-      overrides: { model: { provider: "demo", model: "demo-1" }, tools: { allow: [] } },
-    });
-    await harness.service.send(captureConversation.id, "No capture");
-    await harness.service.whenIdle(captureConversation.id);
-    expect(await harness.store.getPluginStateSize("model-evidence")).toBe(0);
-    await client.peer.request(feedbackConfigureRequest, {
-      enabled: true,
-      endpoint: `http://127.0.0.1:${address.port}`,
-      token: "fixture-controller-token",
-    });
-    const status = await client.peer.request(feedbackStatusRequest, {});
-    expect(status.configured).toBe(true);
-    await harness.service.send(captureConversation.id, "Capture this call");
-    await harness.service.whenIdle(captureConversation.id);
-    expect(await harness.store.getPluginStateSize("model-evidence")).toBeGreaterThan(0);
-    expect(chooseStore).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(status)).not.toContain("fixture-controller-token");
-    const { readGlobalSettings } = await import("@harness/config");
-    expect(JSON.stringify(await readGlobalSettings(home))).not.toContain(
-      "fixture-controller-token",
-    );
-    const conversation = await harness.service.createConversation({
-      overrides: { model: { provider: "demo", model: "demo-1" } },
-    });
-    await client.attach(conversation.id);
-    const turn = await harness.store.createTurn(conversation.id);
-    const firstReasoning = await harness.store.appendItem({
-      conversationId: conversation.id,
-      turnId: turn.id,
-      type: "reasoning",
-      content: [{ type: "text", text: "I will edit before inspecting callers" }],
-    });
-    const firstCall = await harness.store.appendItem({
-      conversationId: conversation.id,
-      turnId: turn.id,
-      type: "tool_call",
-      callId: "edit-1",
-      name: "edit_file",
-      args: { path: "public.py" },
-    });
-    for (const item of [firstReasoning, firstCall])
-      await harness.store.putPluginState("model-evidence", conversation.id, `item:${item.id}`, {
-        attemptId: "first-edit",
-      });
-    await harness.store.putProviderPayload({
-      itemId: firstReasoning.id,
-      provider: "fixture",
-      model: "fixture",
-      type: "chat_reasoning",
-      version: 1,
-      payload: null,
-    });
-    await harness.store.putPluginState("model-evidence", conversation.id, "first-edit", {
-      nativeRequest: { messages: [{ role: "user", content: "Explain this API" }] },
-    });
-    const siblingCall = await harness.store.appendItem({
-      conversationId: conversation.id,
-      turnId: turn.id,
-      type: "tool_call",
-      callId: "edit-2",
-      name: "edit_file",
-      args: { path: "sibling.py" },
-    });
-    await harness.store.putPluginState(
-      "model-evidence",
-      conversation.id,
-      `item:${siblingCall.id}`,
-      { attemptId: "first-edit" },
-    );
-    await harness.store.appendItem({
-      conversationId: conversation.id,
-      turnId: turn.id,
-      type: "tool_result",
-      callId: "edit-1",
-      status: "ok",
-      content: [{ type: "text", text: "Edited" }],
-    });
-    const selected = await harness.store.appendItem({
-      conversationId: conversation.id,
-      turnId: turn.id,
-      type: "message",
-      role: "assistant",
-      content: [{ type: "text", text: "Unwanted response" }],
-    });
-    await harness.store.putPluginState("model-evidence", conversation.id, `item:${selected.id}`, {
-      attemptId: "attempt-1",
-    });
-    await harness.store.putPluginState("model-evidence", conversation.id, "attempt-1", {
-      request: { items: [{ item: selected, payload: { signature: "private-artifact" } }] },
-      nativeRequest: { messages: [{ role: "user", content: "Original context" }] },
-    });
-    const later = await harness.store.appendItem({
-      conversationId: conversation.id,
-      turnId: turn.id,
-      type: "message",
-      role: "assistant",
-      content: [{ type: "text", text: "Later unrelated action" }],
-    });
-    await harness.store.putPluginState("model-evidence", conversation.id, `item:${later.id}`, {
-      attemptId: "later",
-    });
-    const backfill = await client.peer.request(feedbackDecisionsRequest, {
-      conversationId: conversation.id,
+  await harness.store.putProviderPayload({
+    itemId: firstReasoning.id,
+    provider: "fixture",
+    model: "fixture",
+    type: "chat_reasoning",
+    version: 1,
+    payload: null,
+  });
+  await harness.store.putPluginState("model-evidence", conversation.id, "first-edit", {
+    nativeRequest: { messages: [{ role: "user", content: "Explain this API" }] },
+  });
+  const siblingCall = await harness.store.appendItem({
+    conversationId: conversation.id,
+    turnId: turn.id,
+    type: "tool_call",
+    callId: "edit-2",
+    name: "edit_file",
+    args: { path: "sibling.py" },
+  });
+  await harness.store.putPluginState("model-evidence", conversation.id, `item:${siblingCall.id}`, {
+    attemptId: "first-edit",
+  });
+  await harness.store.appendItem({
+    conversationId: conversation.id,
+    turnId: turn.id,
+    type: "tool_result",
+    callId: "edit-1",
+    status: "ok",
+    content: [{ type: "text", text: "Edited" }],
+  });
+  const selected = await harness.store.appendItem({
+    conversationId: conversation.id,
+    turnId: turn.id,
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text: "Unwanted response" }],
+  });
+  await harness.store.putPluginState("model-evidence", conversation.id, `item:${selected.id}`, {
+    attemptId: "attempt-1",
+  });
+  await harness.store.putPluginState("model-evidence", conversation.id, "attempt-1", {
+    request: { items: [{ item: selected, payload: { signature: "private-artifact" } }] },
+    nativeRequest: { messages: [{ role: "user", content: "Original context" }] },
+  });
+  const later = await harness.store.appendItem({
+    conversationId: conversation.id,
+    turnId: turn.id,
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text: "Later unrelated action" }],
+  });
+  await harness.store.putPluginState("model-evidence", conversation.id, `item:${later.id}`, {
+    attemptId: "later",
+  });
+  const backfill = await client.peer.request(feedbackDecisionsRequest, {
+    conversationId: conversation.id,
+    itemId: selected.id,
+  });
+  expect(backfill).toMatchObject({
+    version: 1,
+    conversationId: conversation.id,
+    itemId: selected.id,
+  });
+  expect(backfill.decisions.map((decision) => decision.id)).toEqual(["first-edit", "attempt-1"]);
+  expect(backfill.decisions[0]).toMatchObject({
+    item_ids: [firstReasoning.id, firstCall.id, siblingCall.id],
+    native_request: { messages: [{ role: "user", content: "Explain this API" }] },
+    original_outputs: [
+      { reasoningKind: "exposed_text" },
+      { type: "tool_call", name: "edit_file" },
+      { type: "tool_call", name: "edit_file" },
+    ],
+  });
+  const toolVote = await client.peer.request(feedbackDecisionsRequest, {
+    conversationId: conversation.id,
+    itemId: firstCall.id,
+  });
+  expect(toolVote.decisions.map((entry) => entry.id)).toEqual(["first-edit"]);
+  expect(toolVote.decisions[0]!.item_ids).toEqual([
+    firstReasoning.id,
+    firstCall.id,
+    siblingCall.id,
+  ]);
+  expect(JSON.stringify(backfill)).not.toContain("private-artifact");
+  expect(
+    backfill.decisions
+      .flatMap((decision) => decision.original_outputs)
+      .some(
+        (item) =>
+          typeof item === "object" &&
+          item !== null &&
+          !Array.isArray(item) &&
+          item["type"] === "tool_result",
+      ),
+  ).toBe(false);
+  const id = randomUUID();
+  const params = {
+    id,
+    conversationId: conversation.id,
+    itemId: selected.id,
+    vote: "down" as const,
+    comment: "Too broad",
+  };
+  expect(await client.peer.request(feedbackVoteRequest, params)).toMatchObject({
+    status: "queued",
+    url: `${endpoint}/#/feedback/${id}`,
+  });
+  await client.peer.request(feedbackRetryRequest, {});
+  expect((await client.peer.request(feedbackStatusRequest, {})).pending).toBe(1);
+  expect(await readFile(join(home, "feedback", `${id}.json`), "utf8")).not.toContain(
+    "fixture-controller-token",
+  );
+  await client.peer.request(feedbackConfigureRequest, {
+    enabled: true,
+    endpoint: "http://127.0.0.1:1",
+    token: null,
+  });
+  expect((await client.peer.request(feedbackStatusRequest, {})).configured).toBe(false);
+  await client.peer.request(feedbackRetryRequest, {});
+  expect((await client.peer.request(feedbackStatusRequest, {})).pending).toBe(1);
+  await client.peer.request(feedbackConfigureRequest, {
+    enabled: true,
+    endpoint,
+    token: null,
+  });
+  expect((await client.peer.request(feedbackStatusRequest, {})).configured).toBe(true);
+  receiver.online = true;
+  await client.peer.request(feedbackRetryRequest, {});
+  expect((await client.peer.request(feedbackStatusRequest, {})).pending).toBe(0);
+  expect((await client.peer.request(feedbackVoteRequest, params)).status).toBe("delivered");
+  expect(received).toHaveLength(1);
+  expect(JSON.stringify(received)).not.toContain("private-artifact");
+  expect(received[0]).toMatchObject({
+    id,
+    comment: "Too broad",
+    evidence: {
+      invocation_id: "attempt-1",
+      decisions: [{ id: "first-edit" }, { id: "attempt-1" }],
+      native_request: { messages: [{ role: "user", content: "Original context" }] },
+    },
+  });
+  await expect(
+    client.peer.request(feedbackVoteRequest, { ...params, comment: "Different intent" }),
+  ).rejects.toThrow();
+  const historical = await harness.store.appendItem({
+    conversationId: conversation.id,
+    turnId: turn.id,
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text: "Historical without capture" }],
+  });
+  const unavailable = await client.peer.request(feedbackDecisionsRequest, {
+    conversationId: conversation.id,
+    itemId: historical.id,
+  });
+  expect(unavailable.limitations.join(" ")).toContain("no recorded model invocation");
+  const other = await harness.service.createConversation({
+    overrides: { model: { provider: "demo", model: "demo-1" } },
+  });
+  await client.attach(other.id);
+  await expect(
+    client.peer.request(feedbackDecisionsRequest, {
+      conversationId: other.id,
       itemId: selected.id,
-    });
-    expect(backfill).toMatchObject({
-      version: 1,
-      conversationId: conversation.id,
-      itemId: selected.id,
-    });
-    expect(backfill.decisions.map((decision) => decision.id)).toEqual(["first-edit", "attempt-1"]);
-    expect(backfill.decisions[0]).toMatchObject({
-      item_ids: [firstReasoning.id, firstCall.id, siblingCall.id],
-      native_request: { messages: [{ role: "user", content: "Explain this API" }] },
-      original_outputs: [
-        { reasoningKind: "exposed_text" },
-        { type: "tool_call", name: "edit_file" },
-        { type: "tool_call", name: "edit_file" },
-      ],
-    });
-    const toolVote = await client.peer.request(feedbackDecisionsRequest, {
-      conversationId: conversation.id,
-      itemId: firstCall.id,
-    });
-    expect(toolVote.decisions.map((entry) => entry.id)).toEqual(["first-edit"]);
-    expect(toolVote.decisions[0]!.item_ids).toEqual([
-      firstReasoning.id,
-      firstCall.id,
-      siblingCall.id,
-    ]);
-    expect(JSON.stringify(backfill)).not.toContain("private-artifact");
-    expect(
-      backfill.decisions
-        .flatMap((decision) => decision.original_outputs)
-        .some(
-          (item) =>
-            typeof item === "object" &&
-            item !== null &&
-            !Array.isArray(item) &&
-            item["type"] === "tool_result",
-        ),
-    ).toBe(false);
-    const id = randomUUID();
-    const params = {
-      id,
-      conversationId: conversation.id,
-      itemId: selected.id,
-      vote: "down" as const,
-      comment: "Too broad",
-    };
-    expect(await client.peer.request(feedbackVoteRequest, params)).toMatchObject({
-      status: "queued",
-      url: `http://127.0.0.1:${address.port}/#/feedback/${id}`,
-    });
-    await client.peer.request(feedbackRetryRequest, {});
-    expect((await client.peer.request(feedbackStatusRequest, {})).pending).toBe(1);
-    expect(await readFile(join(home, "feedback", `${id}.json`), "utf8")).not.toContain(
-      "fixture-controller-token",
-    );
-    await client.peer.request(feedbackConfigureRequest, {
-      enabled: true,
-      endpoint: "http://127.0.0.1:1",
-      token: null,
-    });
-    expect((await client.peer.request(feedbackStatusRequest, {})).configured).toBe(false);
-    await client.peer.request(feedbackRetryRequest, {});
-    expect((await client.peer.request(feedbackStatusRequest, {})).pending).toBe(1);
-    await client.peer.request(feedbackConfigureRequest, {
-      enabled: true,
-      endpoint: `http://127.0.0.1:${address.port}`,
-      token: null,
-    });
-    expect((await client.peer.request(feedbackStatusRequest, {})).configured).toBe(true);
-    online = true;
-    await client.peer.request(feedbackRetryRequest, {});
-    expect((await client.peer.request(feedbackStatusRequest, {})).pending).toBe(0);
-    expect((await client.peer.request(feedbackVoteRequest, params)).status).toBe("delivered");
-    expect(received).toHaveLength(1);
-    expect(JSON.stringify(received)).not.toContain("private-artifact");
-    expect(received[0]).toMatchObject({
-      id,
-      comment: "Too broad",
-      evidence: {
-        invocation_id: "attempt-1",
-        decisions: [{ id: "first-edit" }, { id: "attempt-1" }],
-        native_request: { messages: [{ role: "user", content: "Original context" }] },
-      },
-    });
-    await expect(
-      client.peer.request(feedbackVoteRequest, { ...params, comment: "Different intent" }),
-    ).rejects.toThrow();
-    await harness.store.putPluginState("model-evidence", conversation.id, "first-edit", {
-      nativeRequest: { messages: [{ role: "user", content: "large".repeat(800000) }] },
-    });
-    const bounded = await client.peer.request(feedbackDecisionsRequest, {
-      conversationId: conversation.id,
-      itemId: selected.id,
-    });
-    expect(bounded.decisions[0]).toMatchObject({ id: "first-edit", native_request: null });
-    expect(bounded.decisions[0]!.limitations.join(" ")).toContain("omitted");
-    expect(Buffer.byteLength(JSON.stringify(bounded))).toBeLessThan(3 * 1024 * 1024);
-    await harness.store.putPluginState("model-evidence", conversation.id, "first-edit", {
-      nativeRequest: { messages: [{ role: "user", content: "large".repeat(7_000_000) }] },
-    });
-    const boundedVoteId = randomUUID();
-    expect(
-      await client.peer.request(feedbackVoteRequest, { ...params, id: boundedVoteId }),
-    ).toMatchObject({ status: "queued" });
-    await client.peer.request(feedbackRetryRequest, {});
-    const boundedVote = received.find((packet) => packet["id"] === boundedVoteId) as {
-      evidence: { decisions: { id: string; native_request: unknown; limitations: string[] }[] };
-    };
-    expect(boundedVote.evidence.decisions[0]).toMatchObject({
-      id: "first-edit",
-      native_request: null,
-    });
-    expect(boundedVote.evidence.decisions[0]!.limitations.join(" ")).toContain("omitted");
-    expect(Buffer.byteLength(JSON.stringify(boundedVote))).toBeLessThan(32 * 1024 * 1024);
-    const historical = await harness.store.appendItem({
-      conversationId: conversation.id,
-      turnId: turn.id,
-      type: "message",
-      role: "assistant",
-      content: [{ type: "text", text: "Historical without capture" }],
-    });
-    const unavailable = await client.peer.request(feedbackDecisionsRequest, {
-      conversationId: conversation.id,
-      itemId: historical.id,
-    });
-    expect(unavailable.limitations.join(" ")).toContain("no recorded model invocation");
-    const other = await harness.service.createConversation({
-      overrides: { model: { provider: "demo", model: "demo-1" } },
-    });
-    await client.attach(other.id);
-    await expect(
-      client.peer.request(feedbackDecisionsRequest, {
-        conversationId: other.id,
-        itemId: selected.id,
-      }),
-    ).rejects.toThrow();
-    online = false;
-    await client.attach(conversation.id);
-    await client.peer.request(feedbackVoteRequest, { ...params, id: randomUUID() });
-    await client.peer.request(feedbackConfigureRequest, {
-      enabled: false,
-      token: null,
-      endpoint: `http://127.0.0.1:${address.port}`,
-    });
-    await expect(
-      client.peer.request(feedbackVoteRequest, { ...params, id: randomUUID() }),
-    ).rejects.toThrow();
-    const evidenceBytes = await harness.store.getPluginStateSize("model-evidence");
-    await harness.service.send(captureConversation.id, "No more capture");
-    await harness.service.whenIdle(captureConversation.id);
-    expect(await harness.store.getPluginStateSize("model-evidence")).toBe(evidenceBytes);
-    let fileBytes = 0;
-    for (const entry of await readdir(join(home, "feedback"), {
-      recursive: true,
-      withFileTypes: true,
-    })) {
-      if (entry.isFile()) fileBytes += (await stat(join(entry.parentPath, entry.name))).size;
-    }
-    expect(fileBytes).toBeGreaterThan(0);
-    expect(await client.peer.request(feedbackStatusRequest, {})).toMatchObject({
-      enabled: false,
-      pending: 1,
-      storageBytes: evidenceBytes + fileBytes,
-    });
-    const items = await harness.store.listActiveItems(conversation.id);
-    const usage = await harness.store.listModelUsage(captureConversation.id);
-    await harness.store.putPluginState("other", conversation.id, "keep", { value: "untouched" });
-    await client.peer.request(feedbackClearRequest, {});
-    expect(await client.peer.request(feedbackStatusRequest, {})).toMatchObject({
-      storageBytes: 0,
-      pending: 0,
-      failed: 0,
-      configured: true,
-      enabled: false,
-    });
-    expect(await readdir(join(home, "feedback"))).toEqual(["delivered"]);
-    expect(await readdir(join(home, "feedback", "delivered"))).toEqual([]);
-    expect(await harness.store.listActiveItems(conversation.id)).toEqual(items);
-    expect(await harness.store.listModelUsage(captureConversation.id)).toEqual(usage);
-    for (const row of usage)
-      if (row.contextBuildId)
-        expect(await harness.store.getContextBuild(row.contextBuildId)).toBeDefined();
-    expect(await harness.store.getProviderPayloads([firstReasoning.id])).toHaveLength(1);
-    expect(await harness.store.getPluginState("other", conversation.id, "keep")).toEqual({
-      value: "untouched",
-    });
-    await client.peer.request(feedbackClearRequest, {});
-  } finally {
-    client.closeConnection();
-    await harness.close();
-    await new Promise<void>((resolve) => http.close(() => resolve()));
-    vi.restoreAllMocks();
-    vi.unstubAllEnvs();
-    await rm(home, { recursive: true, force: true });
+    }),
+  ).rejects.toThrow();
+  receiver.online = false;
+  await client.attach(conversation.id);
+  await client.peer.request(feedbackVoteRequest, { ...params, id: randomUUID() });
+  await client.peer.request(feedbackConfigureRequest, {
+    enabled: false,
+    token: null,
+    endpoint,
+  });
+  await expect(
+    client.peer.request(feedbackVoteRequest, { ...params, id: randomUUID() }),
+  ).rejects.toThrow();
+  const evidenceBytes = await harness.store.getPluginStateSize("model-evidence");
+  await harness.service.send(captureConversation.id, "No more capture");
+  await harness.service.whenIdle(captureConversation.id);
+  expect(await harness.store.getPluginStateSize("model-evidence")).toBe(evidenceBytes);
+  let fileBytes = 0;
+  for (const entry of await readdir(join(home, "feedback"), {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    if (entry.isFile()) fileBytes += (await stat(join(entry.parentPath, entry.name))).size;
   }
-}, 10_000);
+  expect(fileBytes).toBeGreaterThan(0);
+  expect(await client.peer.request(feedbackStatusRequest, {})).toMatchObject({
+    enabled: false,
+    pending: 1,
+    storageBytes: evidenceBytes + fileBytes,
+  });
+  const items = await harness.store.listActiveItems(conversation.id);
+  const replies = (await harness.store.listActiveItems(captureConversation.id)).filter(
+    (item) => item.type === "message" && item.role === "assistant",
+  );
+  expect(replies).toHaveLength(3);
+  const usage = await harness.store.listModelUsage(captureConversation.id);
+  await harness.store.putPluginState("other", conversation.id, "keep", { value: "untouched" });
+  await client.peer.request(feedbackClearRequest, {});
+  expect(await client.peer.request(feedbackStatusRequest, {})).toMatchObject({
+    storageBytes: 0,
+    pending: 0,
+    failed: 0,
+    configured: true,
+    enabled: false,
+  });
+  expect(await readdir(join(home, "feedback"))).toEqual(["delivered"]);
+  expect(await readdir(join(home, "feedback", "delivered"))).toEqual([]);
+  expect(await harness.store.listActiveItems(conversation.id)).toEqual(items);
+  expect(await harness.store.listModelUsage(captureConversation.id)).toEqual(usage);
+  for (const row of usage)
+    if (row.contextBuildId)
+      expect(await harness.store.getContextBuild(row.contextBuildId)).toBeDefined();
+  expect(await harness.store.getProviderPayloads([firstReasoning.id])).toHaveLength(1);
+  expect(await harness.store.getPluginState("other", conversation.id, "keep")).toEqual({
+    value: "untouched",
+  });
+  await client.peer.request(feedbackClearRequest, {});
+});
+
+it("omits oversized earlier chat requests from the backfill RPC and the delivered vote", async () => {
+  const { harness, client, endpoint, receiver, received } = await startFeedback();
+  receiver.online = true;
+  await client.peer.request(feedbackConfigureRequest, {
+    enabled: true,
+    endpoint,
+    token: "fixture-controller-token",
+  });
+  const conversation = await harness.service.createConversation({});
+  await client.attach(conversation.id);
+  const turn = await harness.store.createTurn(conversation.id);
+  const addDecision = async (attemptId: string) => {
+    const message = await harness.store.appendItem({
+      conversationId: conversation.id,
+      turnId: turn.id,
+      type: "message",
+      role: "assistant",
+      content: [{ type: "text", text: attemptId }],
+    });
+    await harness.store.putPluginState("model-evidence", conversation.id, `item:${message.id}`, {
+      attemptId,
+    });
+    return message;
+  };
+  const earlier = await addDecision("earlier");
+  const selected = await addDecision("selected");
+  const selectedInput = { messages: [{ role: "user", content: "Keep this input" }] };
+  await harness.store.putPluginState("model-evidence", conversation.id, "selected", {
+    nativeRequest: selectedInput,
+  });
+  const params = {
+    conversationId: conversation.id,
+    itemId: selected.id,
+    vote: "up" as const,
+    comment: "",
+  };
+  await harness.store.putPluginState("model-evidence", conversation.id, "earlier", {
+    nativeRequest: { messages: [{ role: "user", content: "x".repeat(3 * 1024 * 1024) }] },
+  });
+  const bounded = await client.peer.request(feedbackDecisionsRequest, {
+    conversationId: conversation.id,
+    itemId: selected.id,
+  });
+  expect(bounded.decisions[0]).toMatchObject({ id: "earlier", native_request: null });
+  expect(bounded.decisions[0]!.limitations.join(" ")).toContain("omitted");
+  expect(Buffer.byteLength(JSON.stringify(bounded))).toBeLessThan(3 * 1024 * 1024);
+  await harness.store.putPluginState("model-evidence", conversation.id, "earlier", {
+    nativeRequest: { messages: [{ role: "user", content: "x".repeat(32 * 1024 * 1024) }] },
+  });
+  const boundedVoteId = randomUUID();
+  expect(
+    await client.peer.request(feedbackVoteRequest, { ...params, id: boundedVoteId }),
+  ).toMatchObject({ status: "queued" });
+  await client.peer.request(feedbackRetryRequest, {});
+  expect(received).toHaveLength(1);
+  const [boundedVote] = received;
+  expect(boundedVote).toMatchObject({
+    id: boundedVoteId,
+    evidence: {
+      native_request: selectedInput,
+      decisions: [
+        {
+          id: "earlier",
+          original_outputs: [{ id: earlier.id }],
+          native_request: null,
+          limitations: expect.arrayContaining([expect.stringContaining("omitted")]) as unknown,
+        },
+        { id: "selected", original_outputs: [{ id: selected.id }], native_request: selectedInput },
+      ],
+    },
+  });
+  expect(Buffer.byteLength(JSON.stringify(boundedVote))).toBeLessThan(32 * 1024 * 1024);
+});

@@ -34,5 +34,11 @@ export function testEventClient(overrides: Partial<HarnessClientService> = {}) {
     },
     ...overrides,
   });
-  return { service, emit: (event: HarnessEvent) => listener?.(event) };
+  return {
+    service,
+    emit: (event: HarnessEvent) => {
+      if (!listener) throw new Error("Cannot emit a fixture event without a mounted subscriber");
+      listener(event);
+    },
+  };
 }

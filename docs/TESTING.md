@@ -64,6 +64,10 @@ toolchain versions. Failed jobs retain the Vitest JSON report for seven days
 when the test runner completed. The report records individual test durations
 and failures alongside the ordinary Actions log.
 
+CLI conversation tests drive Ink input and service events inside React `act`
+before inspecting the resulting frame. Each test unmounts its renderer even on
+failure so that a running-turn spinner cannot keep repainting during later tests.
+
 ## Transcript resizing
 
 The Working slide regression measures a single shared CSS grid during open and
@@ -1627,8 +1631,10 @@ a frozen dataset and unsubmitted training preview.
 The feedback RPC regression also covers a final-message vote exposing earlier
 actual decisions, parallel sibling outputs retained when voting on the first
 call, unavailable historical invocation linkage, cross-branch rejection, opaque
-artifact exclusion, and byte-limited native-input omission. A 35 MB stored earlier
-input cannot break an otherwise small vote; the backfill RPC stays below 3 MiB.
+artifact exclusion, and byte-limited native-input omission. A separate RPC case
+writes oversized evidence to SQLite and checks both the 3 MiB backfill response
+and the 32 MiB vote delivered to the receiver. The ordinary retry and storage
+tests do not carry that oversized row through unrelated operations.
 No provider, tool replay, running shared server, or desktop is started by this test.
 
 Earlier-decision capture validation: typecheck, lint, formatting and diff checks
