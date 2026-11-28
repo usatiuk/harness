@@ -1,4 +1,4 @@
-import { createWriteStream, lstatSync, mkdirSync, writeFileSync } from "node:fs";
+import { createWriteStream, lstatSync, mkdirSync, openSync, writeFileSync } from "node:fs";
 import { finished } from "node:stream/promises";
 import { spawn as nodeSpawn } from "node:child_process";
 import { mkdir, open, readdir, readFile, rm, stat as fsStat, writeFile } from "node:fs/promises";
@@ -229,7 +229,9 @@ export class LocalOutputStore implements OutputStore {
 
   open(id: string): OutputWriter {
     const path = this.#artifactPath(id);
-    const stream = createWriteStream(path, { flags: "wx" });
+    // A live preview can advertise the path immediately; don't hand out a writer
+    // until this activity actually owns the file. The stream closes the descriptor.
+    const stream = createWriteStream(path, { fd: openSync(path, "wx") });
     // Swallow stream errors (disk full, permission): an unhandled `error` event would crash the
     // process, and the in-memory view already carries the outcome.
     stream.on("error", () => {});

@@ -83,11 +83,11 @@ completion delivery, kills, and awaits live work when that root scope is
 deactivated. Runtime handles are not durable across switch, reload, or process
 exit.
 
-Activities may also carry an immutable owner-local readable reference, supplied
-from a subagent's existing task slug. Activity tools accept a canonical ID or a
-unique tracked reference/title; ordinary results, lists and completion notices
-prefer a readable reference, falling back to the canonical ID for ambiguity or
-legacy handles. Structured results retain `activityId` and expose `activityRef`.
+Process activities use their canonical ID for control, even when named. Display
+names need not be unique. Subagent activities may also carry an immutable
+owner-local reference from the existing task slug. Their controls accept a
+unique tracked reference/title as before, falling back to the canonical ID for
+ambiguity. Structured results retain `activityId` and expose `activityRef`.
 Peek, list and kill act on tracked activities in the caller's manager. Kill
 does not resolve a thread from the subagent roster.
 

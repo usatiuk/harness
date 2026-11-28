@@ -57,7 +57,6 @@ export function evaluatorTool(
           .parse(raw),
     },
     exposure: { direct: true, code: false },
-    meta: { addressableOutput: true },
     execute: async (args, ctx) => {
       if (!ctx.codeTools) throw new Error("evaluator invocation bridge missing");
       const spill = ctx.service(OUTPUT_SPILL_SERVICE) as OpenOutputSpill | undefined;
@@ -71,7 +70,11 @@ export function evaluatorTool(
       } finally {
         content = await output.finish();
       }
-      return { ...result, forModel: [...content, ...result.forModel] };
+      return {
+        ...result,
+        ...(output.overflow && { preserveModelView: true }),
+        forModel: [...content, ...result.forModel],
+      };
     },
   };
 }

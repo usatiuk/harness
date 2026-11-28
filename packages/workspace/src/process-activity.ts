@@ -6,6 +6,7 @@ import {
   type BoundOptions,
   type OutputStore,
   type OutputWriter,
+  type ShellKind,
   type SpawnedProcess,
 } from "@harness/execution";
 import type { Activity, ActivityResult } from "@harness/activities";
@@ -16,8 +17,9 @@ const MATERIALIZE_BYTES = COMMAND_VIEW_DEFAULT_BYTES;
 
 export interface ProcessActivityInit {
   id: string;
-  /** Display title (the command); also the basis for the completion summary. */
-  title: string;
+  command: string;
+  shell: ShellKind;
+  name?: string;
   proc: SpawnedProcess;
   store: OutputStore;
   /** Per-activity output widening: `maxLines` selects a wider tail via `resolveCommandView`. */
@@ -30,32 +32,40 @@ export interface ProcessActivityInit {
  * by `boundView` only when shown). `done` resolves once and writes a self-describing exit footer.
  */
 export function createProcessActivity(init: ProcessActivityInit): Activity {
-  const { id, title, proc, store } = init;
+  const { id, name, command, shell, proc, store } = init;
   // One resolved view per activity: the default 40-line/16 KiB tail, or the caller's widened
   // `max_lines` tail (clamped to the shared caps). Both live progress and the terminal result
   // render through it.
   const view: BoundOptions = resolveCommandView(init.view?.maxLines);
-  const started = Date.now();
+  const started = new Date();
   // `recent`: full output until materialized, then a plain-slice tail (no re-bounding per chunk).
   let recent = "";
   let spillError: string | undefined;
   let writer: OutputWriter | undefined;
+  let exited = false;
   const trimTail = (text: string): string =>
     text.length > view.maxTotalBytes ? text.slice(-view.maxTotalBytes) : text;
 
-  const persist = (): void => {
-    if (writer || spillError !== undefined) return;
+  const persist = (): string | undefined => {
+    if (spillError !== undefined) return undefined;
+    if (writer || exited) return writer?.path;
     try {
       writer = store.open(id);
+      writer.write(
+        `Activity: ${id}\n${name === undefined ? "" : `Name: ${name}\n`}Started: ${started.toString()}\nShell: ${shell}\nCommand:\n${command}\n--- output ---\n`,
+      );
       writer.write(recent);
     } catch (error) {
       // onData runs outside tool dispatch. Report failed capture with the process result.
       spillError = String(error);
     }
     recent = trimTail(recent);
+    return spillError === undefined ? writer?.path : undefined;
   };
 
   proc.onData((chunk) => {
+    // A descendant can keep an inherited pipe open after its parent has exited.
+    if (exited) return;
     if (writer || spillError !== undefined) {
       if (spillError === undefined) writer?.write(chunk);
       recent = trimTail(recent + chunk);
@@ -65,27 +75,30 @@ export function createProcessActivity(init: ProcessActivityInit): Activity {
     }
   });
 
-  const peek = (opts?: { filter?: string }): ContentBlock[] => {
+  const output = (empty: string, opts?: { filter?: string }): ContentBlock[] => {
     const seen = boundView(recent, { ...view, ...(opts?.filter ? { filter: opts.filter } : {}) });
-    return [{ type: "text", text: seen || "(no output yet)" }];
+    const log = writer && spillError === undefined ? `Log: ${writer.path}\n` : "";
+    return [{ type: "text", text: log + (seen || empty) }];
   };
 
   const done: Promise<ActivityResult> = proc.exit.then(async ({ code, signal, error }) => {
-    const secs = ((Date.now() - started) / 1000).toFixed(1);
+    exited = true;
+    const secs = ((Date.now() - started.getTime()) / 1000).toFixed(1);
     const how = error
       ? `failed to start (${error.message})`
       : signal
         ? `killed (${signal})`
-        : `exited ${code ?? 0}`;
-    const summary = `\`${title}\` ${how} after ${secs}s`;
+        : code === null
+          ? "exited without a status"
+          : `exited ${code}`;
+    const summary = `${how} after ${secs}s`;
     const status: "ok" | "error" = error || signal || code === null || code !== 0 ? "error" : "ok";
-    const seen: ContentBlock[] = [{ type: "text", text: boundView(recent, view) || "(no output)" }];
     try {
       await writer?.close(`\n--- ${summary} ---\n`);
-      if (writer) seen.push({ type: "text", text: `full output: ${writer.path}` });
     } catch (error) {
       spillError = String(error);
     }
+    const seen = output("(no output)");
     if (spillError !== undefined) {
       const error = `Could not save full output: ${spillError}`;
       return {
@@ -97,5 +110,14 @@ export function createProcessActivity(init: ProcessActivityInit): Activity {
     return { status, summary, view: seen };
   });
 
-  return { id, kind: "process", title, peek, kill: () => proc.kill(), persist, done };
+  return {
+    id,
+    kind: "process",
+    title: name ?? id,
+    preserveModelView: true,
+    peek: (opts) => output("(no output yet)", opts),
+    kill: () => proc.kill(),
+    persist,
+    done,
+  };
 }

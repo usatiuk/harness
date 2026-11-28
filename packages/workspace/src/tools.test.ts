@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -15,7 +15,13 @@ import {
   type ExecutionContext,
   type Relationship,
 } from "@harness/execution";
-import { ActivityManager, activitiesOf, consume } from "@harness/activities";
+import {
+  ActivityListTool,
+  ActivityManager,
+  ActivityPeekTool,
+  activitiesOf,
+  consume,
+} from "@harness/activities";
 import {
   ApplyPatchTool,
   CommandTool,
@@ -52,7 +58,7 @@ async function workspace(): Promise<ToolContext> {
 async function runCommand(
   ctx: ToolContext,
   command: string,
-  extra?: { max_lines?: number },
+  extra?: { max_lines?: number; name?: string },
 ): Promise<ToolResult> {
   const mgr = activitiesOf(ctx);
   const execution = ctx.service("execution") as LocalExecutionContext;
@@ -111,10 +117,9 @@ describe("workspace tools", () => {
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=";
     await execution.write("screenshot.bin", Buffer.from(data, "base64"));
     const read = vi.spyOn(execution, "read");
-    expect(await new ReadFileTool().execute({ path: "screenshot.bin" }, ctx)).toEqual({
-      status: "ok",
-      forModel: [{ type: "image", mediaType: "image/png", data }],
-    });
+    const result = await new ReadFileTool().execute({ path: "screenshot.bin" }, ctx);
+    expect(result.status).toBe("ok");
+    expect(result.forModel).toEqual([{ type: "image", mediaType: "image/png", data }]);
     expect(read).toHaveBeenCalledOnce();
     expect(
       await new ReadFileTool().execute({ path: "screenshot.bin", offset: 0 }, ctx),
@@ -350,11 +355,72 @@ describe("workspace tools", () => {
     const okResult = await runCommand(ctx, "echo hi");
     expect(okResult.status).toBe("ok");
     expect(text(okResult)).toContain("hi");
+    expect(text(okResult)).not.toContain("echo hi");
+    const activity = activitiesOf(ctx).list()[0]!;
+    expect(activity.title).toBe(activity.id);
+    expect(text(okResult)).toContain(activity.id);
+    const root = (ctx.service("execution") as LocalExecutionContext).workspaceRoot!;
+    expect(await readdir(root)).not.toContain(".harness");
 
     const failResult = await runCommand(ctx, "exit 2");
     expect(failResult.status).toBe("error");
     expect(text(failResult)).toContain("exited 2");
   });
+
+  it("keeps optional names display-only and preserves each background process's ID through completion", async () => {
+    const ctx = await workspace();
+    const exec = ctx.service("execution") as LocalExecutionContext;
+    const tool = new CommandTool(exec.shellKind);
+    const mgr = activitiesOf(ctx);
+    const name = "Build packages";
+    const command = "echo built";
+    const notices: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      await tool.execute({ name, command }, ctx);
+      const activity = mgr.claim(ctx.callId)!;
+      const launched = await consume(mgr, activity, true, {
+        ...ctx,
+        deliver: (content) => notices.push(text({ forModel: content })),
+      });
+      expect(launched.structured).toMatchObject({ activityId: activity.id, title: name });
+      expect(launched.structured).not.toHaveProperty("activityRef");
+      expect(text(launched)).toContain(activity.id);
+      expect(text(launched)).toContain(name);
+      expect(text(launched)).not.toContain(command);
+      expect(mgr.resolve(name)).toHaveProperty("error");
+      expect(mgr.resolve(activity.id)).toEqual({ id: activity.id });
+      await activity.done;
+      const notice = notices[i]!;
+      expect(notice).toContain(activity.id);
+      expect(notice).toContain(name);
+      expect(notice).not.toContain(command);
+      expect(notice).toContain("exited 0");
+      const peek = text(
+        await new ActivityPeekTool().execute({ id: activity.id, filter: "built" }, ctx),
+      );
+      expect(peek).toContain(`${name} [${activity.id}]\nLog: `);
+      expect(peek).toMatch(/\.log\nbuilt/);
+      expect(peek).not.toContain(command);
+    }
+    const list = text(await new ActivityListTool().execute({}, ctx));
+    for (const { id } of mgr.list()) expect(list).toContain(id);
+    expect(list).not.toContain(command);
+  });
+
+  it.each(["powershell", "bash", "zsh"] as const)(
+    "accepts only short single-line activity labels for %s",
+    (shell) => {
+      const tool = new CommandTool(shell);
+      if (tool.input.kind !== "function") throw new Error("expected function command tool");
+      const { schema } = tool.input;
+      expect(schema.parse({ command: "echo hi", name: " Run tests " })).toMatchObject({
+        name: "Run tests",
+      });
+      for (const name of ["  ", "Run\nTests", "x".repeat(101)]) {
+        expect(schema.safeParse({ command: "echo hi", name }).success).toBe(false);
+      }
+    },
+  );
 
   it("keeps the default 40-line tail without max_lines", async () => {
     const ctx = await workspace();

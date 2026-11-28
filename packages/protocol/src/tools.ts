@@ -32,6 +32,8 @@ export const outputRefSchema = z.strictObject({
 
 export interface ToolResult {
   forModel: ContentBlock[];
+  /** The producer already selected a bounded model view. Preserve its selection rather than cropping it again. */
+  preserveModelView?: true;
   /** JSON data for programmatic consumers, processed by the same tool middleware. */
   structured?: JsonValue;
   full?: OutputRef;
@@ -119,7 +121,7 @@ export interface ToolMiddlewareContext extends ToolContext {
   /**
    * The opaque `meta` bag of an offered tool by name (`undefined` if unknown / none) — the same
    * lookup `ModelMiddlewareContext` exposes, so a result-shaping middleware can read tool metadata
-   * (e.g. skip bounding `addressableOutput` tools) without the `Tool` itself.
+   * without the `Tool` itself.
    */
   toolMeta(name: string): Record<string, unknown> | undefined;
   /** The effective callable contract, including plugin enrichment. */

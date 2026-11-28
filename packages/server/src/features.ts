@@ -238,7 +238,8 @@ export function registerFeatureServer(session: HarnessRpcSession): void {
       const proc = execution.spawn(command);
       const activity = createProcessActivity({
         id: shellId,
-        title: command,
+        command,
+        shell: execution.shellKind,
         proc,
         store: execution.outputStore(id),
       });

@@ -242,8 +242,9 @@ const discoveryOutput = (items: Item[], id: string) =>
 it.each([
   { code: 'return "x".repeat(100000);', file: JSON.stringify("x".repeat(100000)), status: "ok" },
   {
-    code: 'for (let i=0;i<100;i++) emit("x".repeat(1000)); throw new Error("after emit");',
-    file: JSON.stringify("x".repeat(1000)).repeat(100),
+    // The projected head plus pointer exceeds the generic limit, so a second projection would spill again.
+    code: 'for (let i=0;i<150;i++) emitContent([{type:"text",text:"x".repeat(200)+"\\n"}]); throw new Error("after emit");',
+    file: ("x".repeat(200) + "\n").repeat(150),
     status: "error",
   },
 ])(
@@ -259,6 +260,19 @@ it.each([
     await expectWorkspaceSpill(directory, view, file);
   },
 );
+
+it("preserves the requested read_file window beyond the generic output budget", async () => {
+  const fixture = await setup(
+    [toolStep("read", "read_file", { path: "wide.txt", offset: 1, limit: 160 }), textStep("done")],
+    [],
+    "hybrid",
+  );
+  const lines = Array.from({ length: 162 }, (_, i) => `${i}: ${"x".repeat(120)}`);
+  await writeFile(join(fixture.root, "wide.txt"), lines.join("\n"));
+  const read = results(await fixture.run()).find((item) => item.callId === "read")!;
+  expect(read.status).toBe("ok");
+  expect(textOf(read.content)).toContain(lines.slice(1, 161).join("\n"));
+});
 
 describe("ordinary tool discovery", () => {
   it.each(["hybrid", "code-only"] as const)(

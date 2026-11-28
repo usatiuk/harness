@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { statSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -71,6 +72,69 @@ const numbered = (n: number): string =>
   Array.from({ length: n }, (_, i) => String(i + 1)).join("\n");
 
 describe("createProcessActivity", () => {
+  it.each([false, true])("freezes output on exit (persisted: %s)", async (persisted) => {
+    const exec = new LocalExecutionContext(await tmpRoot());
+    const scripted = scriptedProc();
+    const activity = createProcessActivity({
+      id: "act_closed",
+      command: "test command",
+      shell: exec.shellKind,
+      proc: scripted.proc,
+      store: exec.outputStore("conv"),
+    });
+    if (persisted) activity.persist?.();
+    scripted.emit("parent output");
+    scripted.finish();
+    const result = await activity.done;
+    scripted.emit("late output from an inherited pipe");
+    expect(activity.peek()).toEqual(result.view);
+  });
+  it.each(["persist", "spill"])(
+    "keeps command metadata in the %s log and only output in filtered previews",
+    async (mode) => {
+      const root = await tmpRoot();
+      const exec = new LocalExecutionContext(root);
+      const scripted = scriptedProc();
+      const id = "act_named";
+      const name = "Compile workspace";
+      const command = "  # exact command\n\n  echo hello \r\n";
+      const activity = createProcessActivity({
+        id,
+        ...(mode === "persist" ? { name } : {}),
+        command,
+        shell: exec.shellKind,
+        proc: scripted.proc,
+        store: exec.outputStore("conv"),
+      });
+      const body = `${mode === "spill" ? "x".repeat(100_000) : "first line"}\noutput marker\n`;
+      scripted.emit(body);
+      if (mode === "persist") activity.persist?.();
+      const path = join(root, ".harness", "conv", "outputs", `${id}.log`);
+      const peek = text(activity.peek({ filter: "marker|exact command" }));
+      expect(peek).toContain(path);
+      expect(statSync(path).isFile()).toBe(true);
+      expect(peek.indexOf(path)).toBeLessThan(peek.indexOf("output marker"));
+      expect(peek).not.toContain("exact command");
+      scripted.finish(4);
+      const result = await activity.done;
+      expect(result.status).toBe("error");
+      expect(result.summary).toContain("exited 4");
+      expect(text(result.view)).toContain(path);
+      expect(text(result.view).indexOf(path)).toBeLessThan(
+        text(result.view).indexOf("output marker"),
+      );
+      const logged = await readFile(path, "utf8");
+      expect(logged).toContain(id);
+      if (mode === "persist") expect(logged).toContain(name);
+      else expect(logged).not.toMatch(/^Name:/m);
+      expect(logged).toContain(exec.shellKind);
+      expect(logged).toMatch(/Started: .*GMT[+-]\d{4}/);
+      expect(logged.slice(0, logged.indexOf(body))).toContain(command);
+      expect(logged).toContain(body);
+      expect(logged.slice(logged.indexOf(body) + body.length)).toContain("exited 4");
+      expect(`${result.summary}\n${text(result.view)}`).not.toContain("exact command");
+    },
+  );
   it("reports a failed spill without throwing from the output listener", async () => {
     const scripted = scriptedProc();
     const store = new LocalExecutionContext(await tmpRoot()).outputStore("conv");
@@ -79,7 +143,8 @@ describe("createProcessActivity", () => {
     });
     const activity = createProcessActivity({
       id: "spill",
-      title: "cmd",
+      shell: "bash",
+      command: "cmd",
       proc: scripted.proc,
       store,
     });
@@ -96,7 +161,8 @@ describe("createProcessActivity", () => {
     const scripted = scriptedProc();
     const activity = createProcessActivity({
       id: "act_tail40",
-      title: "numbered",
+      shell: "bash",
+      command: "numbered",
       proc: scripted.proc,
       store: exec.outputStore("conv"),
     });
@@ -116,7 +182,8 @@ describe("createProcessActivity", () => {
     const scripted = scriptedProc();
     const activity = createProcessActivity({
       id: "act_tail200",
-      title: "numbered",
+      shell: "bash",
+      command: "numbered",
       proc: scripted.proc,
       store: exec.outputStore("conv"),
       view: { maxLines: 200 },
@@ -142,7 +209,8 @@ describe("createProcessActivity", () => {
     const scripted = scriptedProc();
     const activity = createProcessActivity({
       id: "act_tailclamp",
-      title: "numbered",
+      shell: "bash",
+      command: "numbered",
       proc: scripted.proc,
       store: exec.outputStore("conv"),
       view: { maxLines: 5_000 },
@@ -168,7 +236,8 @@ describe("createProcessActivity", () => {
     expect(() =>
       createProcessActivity({
         id: "act_badview",
-        title: "bad view",
+        shell: "bash",
+        command: "bad view",
         proc: fake,
         store: exec.outputStore("conv"),
         view: { maxLines },
@@ -180,7 +249,8 @@ describe("createProcessActivity", () => {
     const exec = new LocalExecutionContext(await tmpRoot());
     const activity = createProcessActivity({
       id: "act_ok",
-      title: "echo hi",
+      shell: "bash",
+      command: "echo hi",
       proc: exec.spawn("echo hi"),
       store: exec.outputStore("conv"),
     });
@@ -193,7 +263,8 @@ describe("createProcessActivity", () => {
     const exec = new LocalExecutionContext(await tmpRoot());
     const activity = createProcessActivity({
       id: "act_err",
-      title: "exit 3",
+      shell: "bash",
+      command: "exit 3",
       proc: exec.spawn("exit 3"),
       store: exec.outputStore("conv"),
     });
@@ -206,7 +277,8 @@ describe("createProcessActivity", () => {
     const exec = new LocalExecutionContext(await tmpRoot());
     const activity = createProcessActivity({
       id: "act_spawn_error",
-      title: "missing shell",
+      shell: "bash",
+      command: "missing shell",
       proc: {
         pid: undefined,
         exit: Promise.resolve({
@@ -232,10 +304,12 @@ describe("createProcessActivity", () => {
     const fixture = fileURLToPath(new URL("./fixtures/long-running-child.js", import.meta.url));
     const invoke =
       exec.shellKind === "powershell" ? `& "${process.execPath}"` : `"${process.execPath}"`;
+    const command = `${invoke} "${fixture}" "${pidFile}"`;
     const activity = createProcessActivity({
       id: "act_kill",
-      title: "long-running child",
-      proc: exec.spawn(`${invoke} "${fixture}" "${pidFile}"`),
+      shell: exec.shellKind,
+      command,
+      proc: exec.spawn(command),
       store: exec.outputStore("conv"),
     });
     const descendantPid = await waitForPid(pidFile);

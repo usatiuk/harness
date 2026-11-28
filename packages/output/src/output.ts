@@ -39,12 +39,7 @@ export function outputBoundMiddleware(): ToolMiddleware {
     id: "output-bound",
     async wrap(call, ctx, next) {
       const result = await next(call);
-      if (
-        call.parentCallId ||
-        ctx.toolMeta(call.name)?.addressableOutput ||
-        !ctx.service("execution")
-      )
-        return result;
+      if (call.parentCallId || result.preserveModelView || !ctx.service("execution")) return result;
       const output = new BoundedToolOutput(() => openSpill(ctx));
       let content;
       try {

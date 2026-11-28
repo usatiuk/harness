@@ -60,7 +60,7 @@ function backgroundNotice(
   immediate: boolean,
 ): ToolResult {
   const reference = mgr.reference(activity.id);
-  activity.persist?.();
+  const path = activity.persist?.();
   mgr.notifyOnExit(activity.id, (content) => ctx.deliver(content));
   const lead = immediate
     ? `Started activity ${activityLabel(activity, reference)} in the background.`
@@ -68,7 +68,8 @@ function backgroundNotice(
   return {
     ...okResult(
       `${lead} You'll get a one-shot completion notice, ` +
-        `or use activity_peek / activity_kill with id ${JSON.stringify(reference)}.`,
+        `or use activity_peek / activity_kill with id ${JSON.stringify(reference)}.` +
+        (path === undefined ? "" : `\nLog: ${path}`),
     ),
     structured: {
       activityId: activity.id,

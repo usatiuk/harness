@@ -113,22 +113,14 @@ describe("outputBoundMiddleware", () => {
     expect(result.forModel).toEqual(source.map((value) => ({ type: "text", text: value })));
   });
 
-  it("skips addressableOutput tools", async () => {
-    const ctx = ctxWith(
-      { toolMeta: () => ({ addressableOutput: true }) },
-      new LocalExecutionContext(await tmpRoot()),
+  it("bounds ordinary failures even from tools that normally select their own view", async () => {
+    const result = await outputBoundMiddleware().wrap(
+      { callId: "r", name: "read_file", args: {} },
+      ctxWith({}, new LocalExecutionContext(await tmpRoot())),
+      passthrough({ forModel: [{ type: "text", text: oversized }], status: "error" }),
     );
-    const result: ToolResult = {
-      forModel: [{ type: "text", text: "z".repeat(20_000) }],
-      status: "ok",
-    };
-    expect(
-      await outputBoundMiddleware().wrap(
-        { callId: "r", name: "read_file", args: {} },
-        ctx,
-        passthrough(result),
-      ),
-    ).toBe(result);
+    expect(result.status).toBe("error");
+    expect(text(result.forModel)).toContain("full output preserved at");
   });
 
   it("leaves small output and execution-less calls untouched", async () => {

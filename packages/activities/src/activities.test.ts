@@ -120,7 +120,7 @@ describe("ActivityManager — surface a completion exactly once", () => {
     settle({ status: "ok", summary: "done", view: [{ type: "text", text: "out" }] });
     await tick();
     expect(notices).toHaveLength(1);
-    expect(text(notices[0]!)).toContain("[activity a2]");
+    expect(text(notices[0]!)).toContain(activity.id);
   });
 
   it("emits activity.started on track and activity.exited on settle", async () => {
@@ -376,12 +376,10 @@ describe("owner-local readable activity references", () => {
       expect(timedOut.status).toBe("ok");
       expect(text(timedOut.forModel)).toContain("still running");
       expect(mgr.get(target.activity.id)).toBeUndefined();
-      expect(notices).toEqual([
-        [
-          { type: "text", text: "[activity target-id] actual success" },
-          { type: "text", text: "actual output" },
-        ],
-      ]);
+      expect(notices).toHaveLength(1);
+      const notice = text(notices[0]!);
+      for (const part of [target.activity.id, "actual success", "actual output"])
+        expect(notice).toContain(part);
     } finally {
       vi.useRealTimers();
     }

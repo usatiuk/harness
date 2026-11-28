@@ -329,9 +329,23 @@ Commands default to a 40-line tail under a 16 KiB view budget. Optional
 each line remains capped at 1 KiB. The selection applies to both live activity
 peeks and terminal results. Larger output remains available through its spill file.
 
+Shell tools accept an optional short, single-line `name`. Model previews use
+the name and activity ID, or just the ID if unnamed. The command itself is not
+a display label. When the output has a file, the preview puts its path before
+the tail, even for a filtered peek. The log header records the ID, optional
+name, local start time with offset, shell, and exact submitted command (including
+newlines); the footer records the exit outcome and elapsed time. Avoid putting
+secrets literally in commands: materialized logs retain the command verbatim.
+Small foreground commands do not acquire files just to have a header.
+
 Short results remain inline. The output plugin preserves large results in the
 substrate's `.harness/<conversation>/outputs` store and returns a bounded model-
-facing view plus its path. Streaming processes use the same store when they move
+facing view plus its path. A tool result can set `preserveModelView` to keep
+the producer's selection: a requested file window or image, an already-truncated
+`eval` result, or a process peek's tail. Other peeks, including subagent peeks,
+still use the generic limit.
+
+Streaming processes use the same store when they move
 to the background. Output files are auto-gitignored and remain inspectable by the
 model through ordinary workspace tools. New references are absolute host paths;
 Docker maps paths within its workspace to the container mount. Old relative

@@ -32,7 +32,7 @@ describe("local output artifacts", () => {
     const store = new LocalExecutionContext(alias).outputStore("conversation-1");
     const path = await store.put("captured", "first");
     await expect(store.put("captured", "second")).rejects.toMatchObject({ code: "EEXIST" });
-    await expect(store.open("captured").close("third")).rejects.toMatchObject({ code: "EEXIST" });
+    expect(() => store.open("captured")).toThrow(expect.objectContaining({ code: "EEXIST" }));
     expect(await readFile(path, "utf8")).toBe("first");
     expect(await readFile(marker, "utf8")).toBe("# kept\n");
   });
@@ -67,9 +67,7 @@ describe("local output artifacts", () => {
     const existing = join(other, "existing");
     await writeFile(existing, "original");
     await link(existing, join(outputs, "capture.log"));
-    await expect(store.open("capture").close("unwritten")).rejects.toMatchObject({
-      code: "EEXIST",
-    });
+    expect(() => store.open("capture")).toThrow(expect.objectContaining({ code: "EEXIST" }));
     expect(await readFile(existing, "utf8")).toBe("original");
   });
 });

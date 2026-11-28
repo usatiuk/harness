@@ -40,9 +40,17 @@ import {
 import { registerApprovalServer } from "./approvals.ts";
 import { registerFeatureServer } from "./features.ts";
 import { HarnessPluginClient, FEATURE_PLUGIN_CONTRACTS } from "@harness/client-features";
-import { activitiesPlugin, activityKillRequest, isActivityEvent } from "@harness/activities";
+import {
+  ActivityManager,
+  activitiesPlugin,
+  activityKillRequest,
+  isActivityEvent,
+} from "@harness/activities";
 import { sandboxPlugin } from "@harness/sandbox";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { LocalExecutionContext } from "@harness/execution";
+import { createProcessActivity } from "@harness/workspace";
+import { outputPlugin } from "@harness/output";
+import { mkdtemp, readdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -100,6 +108,77 @@ function sharedHarness(
     },
   };
 }
+
+it("preserves a process tail through activity_peek without unbounding other activities in the batch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "harness-peek-"));
+  const execution = new LocalExecutionContext(root);
+  const store = new InMemoryStore(counterIdGenerator(), fixedClock());
+  const provider = new FakeProvider([
+    [
+      { type: "tool_call", callId: "act_build", name: "activity_peek", args: { id: "act_build" } },
+      ...toolStep("review", "activity_peek", { id: "review" }),
+    ],
+    textStep("done"),
+  ]);
+  const harness = sharedHarness(
+    provider,
+    [
+      activitiesPlugin,
+      outputPlugin,
+      { id: "execution", services: () => [{ key: "execution", for: () => execution }] },
+    ],
+    store,
+  );
+  let finish!: () => void;
+  const exit = new Promise<{ code: number; signal: null }>((resolve) => {
+    finish = () => resolve({ code: 0, signal: null });
+  });
+  try {
+    const { id } = await harness.service.createConversation({});
+    await harness.service.prepare(id);
+    const manager = harness.service.service(id, "activities");
+    if (!(manager instanceof ActivityManager)) throw new Error("missing activity manager");
+    const tail = [...Array<string>(39).fill("x".repeat(408)), "x".repeat(399) + " ISREADY!"].join(
+      "\n",
+    );
+    const process = createProcessActivity({
+      id: "act_build",
+      name: "A".repeat(80),
+      command: "build",
+      shell: execution.shellKind,
+      store: execution.outputStore(id),
+      proc: { pid: undefined, exit, kill: finish, onData: (send) => send(tail) },
+    });
+    const log = process.persist!();
+    manager.track(process, { emit() {} });
+    manager.track(
+      {
+        id: "review",
+        title: "Review",
+        reference: "review",
+        kind: "subagent",
+        peek: () => [{ type: "text", text: "review start" + "x".repeat(20_000) + "review end" }],
+        done: Promise.resolve({ status: "ok", summary: "done", view: [] }),
+        kill() {},
+      },
+      { emit() {} },
+    );
+    await harness.service.send(id, "inspect both activities");
+    await harness.service.whenIdle(id);
+    const results = (await store.listActiveItems(id)).filter((item) => item.type === "tool_result");
+    const content = (id: string) => textOf(results.find((item) => item.callId === id)!.content);
+    const build = content("act_build");
+    expect(build).toContain(`Log: ${log}\n`);
+    expect(build.endsWith(tail)).toBe(true);
+    expect(content("review")).toContain("review start");
+    expect(content("review")).not.toContain("review end");
+    expect(await readdir(join(root, ".harness", id, "outputs"))).toHaveLength(2);
+  } finally {
+    finish();
+    await harness.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 it("keeps accepted and queued turns alive after disconnect and suppresses missed stream suffixes on fresh attach", async () => {
   let release!: () => void, started!: () => void;

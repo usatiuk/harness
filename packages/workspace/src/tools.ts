@@ -74,8 +74,6 @@ export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
     "(`offset` 0-based, `limit` line count); large files are shown a window you can scroll with " +
     "`offset`/`limit`.";
   readonly input: ToolInput<z.infer<typeof readArgs>> = { kind: "function", schema: readArgs };
-  // Output is itself a named file the model narrows via offset/limit; the bounding middleware skips it.
-  readonly meta = { addressableOutput: true };
   async execute(
     { path, offset, limit }: z.infer<typeof readArgs>,
     ctx: ToolContext,
@@ -97,6 +95,7 @@ export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
         return errorResult("Image file is invalid or changed while reading.");
       return {
         status: "ok",
+        preserveModelView: true,
         forModel: [{ type: "image", mediaType, data: Buffer.from(bytes).toString("base64") }],
       };
     }
@@ -114,6 +113,7 @@ export class ReadFileTool implements Tool<z.infer<typeof readArgs>> {
     const header = windowed ? `[lines ${start + 1}-${end} of ${lines.length}]\n` : "";
     return {
       ...okResult(header + body),
+      preserveModelView: true,
       structured: { text: body, offset: start, totalLines: lines.length },
     };
   }
@@ -252,6 +252,16 @@ export class EditTool implements Tool<z.infer<typeof editArgs>> {
 
 const commandArgs = z.strictObject({
   command: z.string(),
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .regex(/^.+$/, "Activity names must fit on one line")
+    .optional()
+    .describe(
+      "Short display name for this command's activity. Use its ID, not this label, to peek or kill.",
+    ),
   max_lines: z.number().int().positive().max(COMMAND_VIEW_MAX_LINES).optional(),
 });
 export class CommandTool implements Tool<z.infer<typeof commandArgs>> {
@@ -281,7 +291,7 @@ export class CommandTool implements Tool<z.infer<typeof commandArgs>> {
   // The activities plugin reads this to inject the `background` argument into the wire schema.
   readonly meta = { backgroundable: true };
   execute(
-    { command, max_lines }: z.infer<typeof commandArgs>,
+    { command, name, max_lines }: z.infer<typeof commandArgs>,
     ctx: ToolContext,
   ): Promise<ToolResult> {
     // The wire schema rejects non-integer/over-cap `max_lines` first; this guards
@@ -301,7 +311,9 @@ export class CommandTool implements Tool<z.infer<typeof commandArgs>> {
     // Spawn unbound from `ctx.signal`; backgrounded commands survive turn-end.
     const activity = createProcessActivity({
       id,
-      title: command,
+      command,
+      shell: exec.shellKind,
+      ...(name === undefined ? {} : { name }),
       proc: exec.spawn(command),
       store: exec.outputStore(ctx.conversationId),
       ...(max_lines === undefined ? {} : { view: { maxLines: max_lines } }),

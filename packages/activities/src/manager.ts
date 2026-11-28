@@ -67,7 +67,9 @@ export class ActivityManager {
   resolve(reference: string): { id: string } | { error: string } {
     if (this.#byId.has(reference)) return { id: reference };
     const matches = [...this.#byId.values()].filter(
-      (activity) => activity.reference === reference || activity.title === reference,
+      (activity) =>
+        activity.reference !== undefined &&
+        (activity.reference === reference || activity.title === reference),
     );
     if (matches.length > 1)
       return {
@@ -80,6 +82,7 @@ export class ActivityManager {
   reference(id: string): string {
     const activity = this.#byId.get(id);
     if (!activity) throw new Error(`Cannot label unknown activity: ${id}`);
+    if (activity.reference === undefined) return id;
     for (const candidate of [activity.reference, activity.title]) {
       if (!candidate) continue;
       const resolved = this.resolve(candidate);
@@ -204,11 +207,12 @@ export function noticeContent(
   activity?: Activity,
   reference = id,
 ): ContentBlock[] {
-  const label = activity && activity.title !== reference ? ` ${activity.title}` : "";
-  return [
-    { type: "text", text: `[activity ${reference}]${label} ${result.summary}` },
-    ...result.view,
-  ];
+  const title = activity && activity.title !== reference ? ` ${activity.title}` : "";
+  const heading =
+    activity && activity.reference === undefined
+      ? `[activity] ${activityLabel(activity, id)} ${result.summary}\n`
+      : `[activity ${reference}]${title} ${result.summary}`;
+  return [{ type: "text", text: heading }, ...result.view];
 }
 
 /** Narrows the opaque `ctx.service("activities")` to `ActivityManager`; throws if not wired. */

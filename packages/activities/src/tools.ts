@@ -9,8 +9,11 @@ import {
 } from "@harness/protocol";
 import { activitiesOf, activityLabel } from "./manager.ts";
 
+const activityId = z
+  .string()
+  .describe("Activity ID. Subagents also accept an unambiguous caller-owned name or reference.");
 const peekArgs = z.strictObject({
-  id: z.string().describe("Caller-owned unambiguous name/reference, or canonical ID fallback."),
+  id: activityId,
   filter: z.string().optional(),
 });
 export class ActivityPeekTool implements Tool<z.infer<typeof peekArgs>> {
@@ -26,7 +29,15 @@ export class ActivityPeekTool implements Tool<z.infer<typeof peekArgs>> {
     if ("error" in resolved) return errorResult(resolved.error);
     const activity = mgr.get(resolved.id);
     if (!activity) return errorResult(`unknown activity: ${id}`);
-    return { forModel: activity.peek(filter ? { filter } : undefined), status: "ok" };
+    const content = activity.peek(filter ? { filter } : undefined);
+    return {
+      ...(activity.preserveModelView && { preserveModelView: true }),
+      forModel:
+        activity.reference === undefined
+          ? [{ type: "text", text: `${activityLabel(activity, activity.id)}\n` }, ...content]
+          : content,
+      status: "ok",
+    };
   }
 }
 
@@ -44,14 +55,14 @@ export class ActivityListTool implements Tool<Record<string, never>> {
     if (activities.length === 0) return okResult("no activities");
     const lines = activities.map((a) => {
       const result = mgr.resultOf(a.id);
-      return `${activityLabel(a, mgr.reference(a.id))}  ${result ? result.summary : `running  \`${a.title}\``}`;
+      return `${activityLabel(a, mgr.reference(a.id))}  ${result?.summary ?? "running"}`;
     });
     return okResult(lines.join("\n"));
   }
 }
 
 const killArgs = z.strictObject({
-  id: z.string().describe("Caller-owned unambiguous name/reference, or canonical ID fallback."),
+  id: activityId,
 });
 export class ActivityKillTool implements Tool<z.infer<typeof killArgs>> {
   readonly essential = true;
