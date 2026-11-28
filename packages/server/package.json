@@ -75,7 +75,7 @@
     "@harness/subagents": "*",
     "@harness/workspace": "*",
     "@harness/client-features": "*",
-    "zod": "^4.4.3",
+    "zod": "^4.6.7",
     "vscode-jsonrpc": "^8.2.0",
     "@harness/litellm": "*",
     "@harness/mistral": "*",

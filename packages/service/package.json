@@ -34,6 +34,6 @@
     "@harness/workspace": "*",
     "@harness/approval": "*",
     "vitest": "^4.1.8",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   }
 }
