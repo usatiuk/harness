@@ -509,7 +509,8 @@ its paged file tree highlights the file at the top of the diff without moving fo
 Clicking a row jumps to that file. The diff follows the tree's folder-first order,
 including files inside collapsed folders. The server pages in that same order,
 so later pages extend the diff below the files already loaded. Folder and file rows have full-width hit
-areas with the same inset, rounded highlight as conversation rows. Folder chevrons
+areas with the same inset, rounded highlight as conversation rows. A 1px gap
+separates adjacent file and folder highlights without shrinking the hit areas. Folder chevrons
 and vertical guides show nesting; file rows show green addition and red deletion counts.
 Tree folders use the shared disclosure animation and reduced-motion preference.
 Filenames stay on one line with ellipsis and full-path hover. File headers show
@@ -656,8 +657,8 @@ paging across route remounts of the same view. Sharing follows the attached view
 lifetime; reloading a conversation gives its replacement an independent load. The final Start of conversation label preserves the
 header height and reading anchor.
 
-The activity dock shows only running work and hides when empty. Existing command
-or agent names and a one-line output preview identify compact expandable rows.
+The activity dock shows only running work and hides when empty. A process name
+(or its ID if unnamed) or agent name identifies each compact expandable row.
 Only one activity expands at a time. Each row keeps a compact Stop icon beside
 its running label, available while collapsed as well as expanded.
 Output uses the existing peek RPC immediately and every second while the visible

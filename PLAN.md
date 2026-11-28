@@ -1,5 +1,8 @@
 # Harness plan
 
+[Context notices and process previews](docs/plans/cross-cutting/2026-11-27-context-notices-and-process-previews.md)
+records verified request-time notices, explicit flat history groups, and shorter activity previews.
+
 The completed [plugin operation boundaries plan](docs/plans/cross-cutting/2026-11-27-plugin-operation-boundaries.md)
 records verified delivery acknowledgements, activation-bound handles and one
 checked subagent spawn operation.

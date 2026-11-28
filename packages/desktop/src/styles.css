@@ -2447,7 +2447,7 @@ button.subagent-row:hover {
 .changes-file::before {
   content: "";
   position: absolute;
-  inset: 0 var(--navigation-gutter);
+  inset: 0 var(--navigation-gutter) 1px;
   z-index: -1;
   border-radius: var(--navigation-row-radius);
   background: var(--row-face, transparent);
@@ -2508,14 +2508,13 @@ button.subagent-row:hover {
 }
 .changes-file[data-test-file] {
   --test-blue: light-dark(#436fa3, #95b9e4);
-  --row-face: color-mix(in srgb, var(--test-blue) var(--test-fill, 12%), transparent);
-  color: color-mix(in srgb, var(--ink), var(--test-blue) 55%);
+  --row-face: color-mix(in srgb, var(--test-blue) var(--test-fill, 7%), transparent);
 }
 .changes-file[data-test-file]:hover {
-  --test-fill: 21%;
+  --test-fill: 14%;
 }
 .changes-file[data-test-file][aria-pressed="true"] {
-  --test-fill: 32%;
+  --test-fill: 23%;
 }
 .changes-diffs {
   flex: 1;

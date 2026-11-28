@@ -2513,13 +2513,16 @@ test("Changes distinguishes test rows and syntax-colors the patch in both themes
     const left = el.getBoundingClientRect().left + el.clientLeft;
     return { left, right: left + el.clientWidth };
   });
-  for (const row of [folder, testRow, other]) {
+  let previousFaceBottom: number | undefined;
+  for (const row of [folder, other, testRow]) {
     const box = (await row.boundingBox())!;
     expect(Math.abs(box.x - treeEdges.left)).toBeLessThan(1);
     expect(Math.abs(box.x + box.width - treeEdges.right)).toBeLessThan(1);
     const face = await row.evaluate((el) => {
       const style = getComputedStyle(el, "::before");
       return {
+        top: parseFloat(style.top),
+        bottom: parseFloat(style.bottom),
         left: parseFloat(style.left),
         right: parseFloat(style.right),
         radius: parseFloat(style.borderRadius),
@@ -2528,6 +2531,9 @@ test("Changes distinguishes test rows and syntax-colors the patch in both themes
     expect(face.left).toBeGreaterThan(0);
     expect(face.right).toBe(face.left);
     expect(face.radius).toBeGreaterThan(0);
+    if (previousFaceBottom !== undefined)
+      expect(box.y + face.top - previousFaceBottom).toBeCloseTo(1);
+    previousFaceBottom = box.y + box.height - face.bottom;
   }
   const nameLeft = (el: Element) => el.firstElementChild!.getBoundingClientRect().left;
   expect(await other.evaluate(nameLeft)).toBeGreaterThan(await testRow.evaluate(nameLeft));
@@ -2549,6 +2555,7 @@ test("Changes distinguishes test rows and syntax-colors the patch in both themes
     expect(
       await testRow.evaluate((el) => getComputedStyle(el, "::before").backgroundColor),
     ).not.toBe(await other.evaluate((el) => getComputedStyle(el, "::before").backgroundColor));
+    expect(await testRow.evaluate(color)).toBe(await other.evaluate(color));
     expect(await testRow.locator(".changes-additions").evaluate(color)).toBe(
       await other.locator(".changes-additions").evaluate(color),
     );

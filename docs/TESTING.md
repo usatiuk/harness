@@ -2076,6 +2076,11 @@ by the boundary actually exercised:
   zero, input-only, context-only, both limits, output-only and unknown metadata,
   model changes and auxiliary calls. The exact authoritative agent checkpoint is
   required. This does not change or qualify engine compaction thresholds.
+- Context-notice tests use a controlled server clock for ten-minute boundaries,
+  midnight, fractional offsets, model changes and warning thresholds. A composed
+  server regression advances the clock during a tool step and checks the actual
+  opening system message, stable prefix, and ordered time update received by
+  the demo adapter. It needs no external provider credentials.
 - Family/activity tests cover names/slugs and canonical fallbacks, ambiguity,
   owner isolation, collection/restart, direct/eval contracts, briefing and ordinary
   no-UUID presentation. Public-server dismissal coverage filters before paging,
@@ -2087,6 +2092,11 @@ by the boundary actually exercised:
   continuation with real promises. Synchronous outcome consumption stays inside
   existing wait protection; callback-failure cleanup and label ambiguity changes
   are also covered.
+  Process tests check ID-only control with duplicate labels, exact multiline
+  command headers, and that an advertised log exists before the process ends.
+  Settled activity previews do not take more bytes from inherited pipes. A
+  batched server regression keeps the newest readiness line and original log
+  reference on a wide process peek while still bounding unrelated subagent output.
 - Agents/service tests cover isolated global homes, additive root/general/explore/
   custom roles, projectless use, canonical deduplication, symlink/access policy,
   file creation, edits, deletion, reload, actual compaction/rewind, and repeated request
